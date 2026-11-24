@@ -271,7 +271,9 @@ LLM_MODEL=qwen-plus
 
 **输出后处理（normalizeTable）**：LLM 输出常带尾部空列（假列）和冗余上标。新增确定性后处理：先去除每行尾部空单元格再确定列数（避免假列撑大表格），表头/所有数据行统一到该列数（不足补空、超出截断）；清理链式上标 `a^{±}^{0.00}` → `a^{±0.00}`；把编造的 `Column N` 表头替换为空串；prompt 强调保留单词完整首字母。
 
-**合并单元格处理**：原表跨行的合并单元格（如 Class 表中 Accuracy 列的 `0.9611` 跨 No-Grinding/Grinding 两行）被 LLM 只填首行。后处理检测"某列首行有值、后续行全空"的情况，向下填充该值，并追加警告 `Merged cells filled down in column X; please verify`——符合 PRD"不静默修改"原则，用户可复核。验证：Grinding 行 Accuracy 正确填为 `0.9611`，带警告。全量回归约 79.6%–80.0%、54/54 张表，无退步。
+**合并单元格处理**：原表跨行的合并单元格（如 Class 表中 Accuracy 列的 `0.9611` 跨 No-Grinding/Grinding 两行）被 LLM 只填首行。后处理检测"某列首行有值、后续行全空"的情况，向下填充该值，并追加警告 `Merged cells filled down in column X; please verify`——符合 PRD"不静默修改"原则，用户可复核。验证：Grinding 行 Accuracy 正确填为 `0.9611`，带警告。
+
+**数学符号与表尾脚注**：线上验证发现 `𝒟_{test}-VQA` 的下标父字符 `𝒟`（数学斜体 D）被 LLM 丢弃，变成 `test-VQA`；表格底部的统计脚注行（如 `Pearson Correlation: r = 0.9587, p = 0.04129`）被漏掉。prompt 增加两条强指令：保留所有字符含数学/斜体字母；表尾脚注统计行作为最后一行输出（整句放首格、其余留空）。验证：001 样本两处均正确，该样本召回率 78%→82.6%。全量回归约 78%–83%（LLM 随机波动范围），表格数 51–55/54。
 
 未引入视觉模型，DeepSeek Key 不变，成本不变。canvas 依赖已卸载。
 
