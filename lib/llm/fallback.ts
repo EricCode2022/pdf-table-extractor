@@ -149,10 +149,29 @@ function normalizeTable(t: z.infer<typeof LLM_TABLE>): {
     return r;
   });
 
+  // Remove columns that are empty in the header AND every data row (multi-level
+  // header placeholders). Keep at least one column.
+  const keepCols: number[] = [];
+  for (let c = 0; c < colCount; c++) {
+    const headerEmpty = !normalizedHeaders[c]?.trim();
+    const allRowsEmpty = normalizedRows.every((r) => !r[c]?.trim());
+    if (!(headerEmpty && allRowsEmpty)) keepCols.push(c);
+  }
+  if (keepCols.length > 0 && keepCols.length < colCount) {
+    const filteredHeaders = keepCols.map((c) => normalizedHeaders[c]);
+    const filteredRows = normalizedRows.map((row) => keepCols.map((c) => row[c]));
+    normalizedHeaders.length = 0;
+    normalizedHeaders.push(...filteredHeaders);
+    normalizedRows.length = 0;
+    normalizedRows.push(...filteredRows);
+  }
+
+  const finalColCount = normalizedHeaders.length;
+
   // Detect vertically merged cells: first row has a value, all following rows empty in same column.
   const mergedColumns: number[] = [];
-  if (normalizedRows.length >= 2 && colCount > 1) {
-    for (let c = 0; c < colCount; c++) {
+  if (normalizedRows.length >= 2 && finalColCount > 1) {
+    for (let c = 0; c < finalColCount; c++) {
       const first = normalizedRows[0][c]?.trim() ?? '';
       if (!first) continue;
       const restEmpty = normalizedRows.slice(1).every((r) => !r[c]?.trim());
@@ -164,7 +183,7 @@ function normalizeTable(t: z.infer<typeof LLM_TABLE>): {
 
   return {
     table: { headers: normalizedHeaders, rows: normalizedRows, confidence: t.confidence },
-    columnCount: colCount,
+    columnCount: finalColCount,
     mergedColumns,
   };
 }
