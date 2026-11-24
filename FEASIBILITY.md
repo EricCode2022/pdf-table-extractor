@@ -232,7 +232,7 @@ row1: LPIPS[r1c1] | CLIP[r1c1] | Overall[r1c1] | Overall[r1c1]
 - `ε^{−2k/(2σ+k)}` 的链式上标合并为单个 `<sup>`，通过 `headerRowsRich` 传入 `TableHeader`（此前多行表头丢弃了 rich，导致显示为纯文本）
 - 导出/复制时 `toPlainText` 把 `\binom{a}{b}` 转成 `C(a,b)` 可读形式，Excel 导出不受 markup 影响
 
-**数据单元格垂直合并**（`restoreMergedDataCells` + 预览/Excel）：LLM 常把多行的合并单元格（如 Dataset 列的 ETTh2/Consumption/NI 各跨 3 行）的值放错行或留空。按首列非空标签在 rows 中的索引，用相邻标签中点划分组（平局归右，处理居中/末行标签），把标签填充到组内每行；预览页对首列文本连续相同行用 `rowSpan` 合并居中，Excel 导出同步 `mergeCells`。006 的 Dataset 表还原为 ETTh2×3/Consumption×3/NI×3，GPT2 表的 XL 跨 2 行也正确。
+**数据单元格垂直合并**（`restoreMergedDataCells` + 预览/Excel）：LLM 常把多行的合并单元格（如 Dataset 列的 ETTh2/Consumption/NI 各跨 3 行）的值放错行或留空。用 PDF 坐标精确定位：以页面中唯一出现的数值 anchor 收集连续数据行 y，把每个首列标签的 y snap 到最近数据行得到真实组中心，再按相邻标签中点分组；触发条件包括空单元格，或"相邻重复后立即跟不同标签"的可疑错位（修复 LLM 把合并标签放错行的情况）。把标签填充到组内每行；预览页对首列文本连续相同行用 `rowSpan` 合并居中，Excel 导出同步 `mergeCells`。006 的 Dataset 表还原为 ETTh2×3/Consumption×3/NI×3，GPT2 表的 XL 跨 2 行也正确，无多余单元格。
 
 全量真实样本回归 77.9%（在 77–80% 的正常 LLM 波动范围内），无退化。
 

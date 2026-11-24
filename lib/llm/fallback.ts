@@ -470,29 +470,72 @@ function rebuildHeaderRowsFromCoords(
 /**
  * Restore vertically-merged data cells (multirow). In PDFs the label of a
  * multirow cell is vertically centred, so the LLM leaves some column-0 cells
- * empty and puts the label on the group's middle row. We split the data rows
- * at the midpoints between the label positions (row indices) and repeat each
- * label across its group so the renderer's rowSpan merges it.
+ * empty and puts the label on the group's middle row. We use the PDF text
+ * coordinates to find the true row index of each label (its y snapped to the
+ * nearest data row), split rows at the midpoints between consecutive labels,
+ * and repeat each label across its group so rowSpan can merge it.
  */
 function restoreMergedDataCells(
+  page: PageData,
   rows: string[][],
   colCount: number
 ): string[][] | null {
   if (rows.length < 3 || colCount < 2) return null;
 
-  // Positions (row indices) of non-empty, distinct labels in column 0.
+  // Distinct labels seen in column 0 of the LLM output.
+  const labels: string[] = [];
+  for (const row of rows) {
+    const text = row[0]?.trim() ?? '';
+    if (text && !labels.includes(text)) labels.push(text);
+  }
+  if (labels.length < 2) return null;
+  // Trigger when there are empty cells to fill OR the first column has an
+  // adjacent duplicate immediately followed by a distinct label (a sign the
+  // LLM misplaced a vertically-merged label).
+  const emptyCount = rows.filter((r) => !r[0]?.trim()).length;
+  const suspiciousDuplicate = rows.some(
+    (r, i) => i > 0 && i < rows.length - 1 && r[0]?.trim() && r[0].trim() === rows[i - 1][0]?.trim() && rows[i + 1][0]?.trim() && rows[i + 1][0].trim() !== r[0].trim()
+  );
+  if (emptyCount < labels.length - 1 && !suspiciousDuplicate) return null;
+
+  // Data-row y positions: anchor on a distinctive numeric value (appearing
+  // once on the page), then collect consecutive visual rows below it.
+  const distinctive = rows
+    .flatMap((r) => [r[1], r[2]])
+    .map((v) => v?.trim() ?? '')
+    .filter(Boolean)
+    .map((text) => ({ text, count: page.cells.filter((c) => c.text.trim() === text).length }))
+    .filter((m) => m.count === 1);
+  let dataRowYs: number[] = [];
+  const sortedCells = [...page.cells].filter((c) => c.text.trim()).sort((a, b) => a.y - b.y);
+  for (const m of distinctive) {
+    const hit = page.cells.find((c) => c.text.trim() === m.text);
+    if (!hit) continue;
+    const start = sortedCells.findIndex((c) => c === hit);
+    const ys: number[] = [];
+    for (let i = start; i < sortedCells.length && ys.length < rows.length; i++) {
+      const y = sortedCells[i].y;
+      if (ys.length === 0 || y - ys[ys.length - 1] > 8) ys.push(y);
+    }
+    if (ys.length === rows.length) { dataRowYs = ys; break; }
+  }
+  if (dataRowYs.length < 2) return null;
+
+  // For each label, find its y on the page and snap to the nearest data row.
   const marks: { text: string; idx: number }[] = [];
-  for (let i = 0; i < rows.length; i++) {
-    const text = rows[i][0]?.trim() ?? '';
-    if (!text) continue;
-    const last = marks[marks.length - 1];
-    if (last && last.text === text) continue; // already part of a filled group
-    marks.push({ text, idx: i });
+  for (const text of labels) {
+    const hit = page.cells.find((c) => c.text.trim() === text);
+    if (!hit) continue;
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < dataRowYs.length; i++) {
+      const d = Math.abs(dataRowYs[i] - hit.y);
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+    }
+    marks.push({ text, idx: bestIdx });
   }
   if (marks.length < 2) return null;
-  // Only restore when there are genuinely empty cells to fill (merged groups).
-  const emptyCount = rows.filter((r) => !r[0]?.trim()).length;
-  if (emptyCount < marks.length - 1) return null;
+  marks.sort((a, b) => a.idx - b.idx);
 
   const boundaries = marks.slice(1).map((m, i) => (marks[i].idx + m.idx) / 2);
   const restored = rows.map((row) => [...row]);
@@ -537,7 +580,7 @@ export async function extractPageWithLlm(
       }
 
       let rows = n.rows;
-      const restoredRows = restoreMergedDataCells(rows, columnCount);
+      const restoredRows = restoreMergedDataCells(page, rows, columnCount);
       if (restoredRows) {
         rows = restoredRows;
         warnings.push('Merged data cells restored from PDF text coordinates; please verify');
