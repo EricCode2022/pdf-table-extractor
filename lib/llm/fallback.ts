@@ -152,10 +152,15 @@ function normalizeMarkup(text: string): string {
 }
 
 // Convert markup to plain text for export/copy (preserves readability).
+// Repeatedly strips innermost _{}/^{} pairs so nested markup like m_{DO_{2}} works.
 function toPlainText(text: string): string {
   let out = normalizeMarkup(text);
-  out = out.replace(/_\{([^{}]{1,12})\}/g, '$1');
-  out = out.replace(/\^\{([^{}]{1,12})\}/g, (_, s: string) => toSuperscript(s));
+  let prev: string;
+  do {
+    prev = out;
+    out = out.replace(/_\{([^{}]{1,20})\}/g, '$1');
+    out = out.replace(/\^\{([^{}]{1,20})\}/g, (_, s: string) => toSuperscript(s));
+  } while (out !== prev);
   return out;
 }
 
@@ -240,12 +245,13 @@ export async function extractPageWithLlm(
     let parsed: z.infer<typeof LLM_RESPONSE>;
     try {
       parsed = LLM_RESPONSE.parse(JSON.parse(content));
-    } catch {
+    } catch (e) {
+      const reason = e instanceof Error ? e.message.slice(0, 200) : 'unknown';
       return {
         tables: ruleTables,
         usage,
         latencyMs: Date.now() - started,
-        error: 'LLM output failed validation; kept rule-based result',
+        error: `LLM output failed validation (${reason}); kept rule-based result. Raw: ${content.slice(0, 300)}`,
       };
     }
     const pageTables: TableData[] = parsed.tables.filter((t) => !isLikelyProse(t)).map((t, i) => {

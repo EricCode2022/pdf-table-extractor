@@ -279,6 +279,8 @@ LLM_MODEL=qwen-plus
 
 **数学表达式严格还原（富文本）**：为满足"上下标严格按原图"，数据结构扩展 `headersRich` / `rowsRich` 字段，保留 LLM 输出的 `_{}` / `^{}` 标记；前端 `components/extract/RichCell.tsx` 把标记渲染为 HTML `<sub>` / `<sup>`，于是 `μ_{max}` 显示为真正的下标 max、`m^{2}` 显示为上标 2，与原图排版一致。同时 `headers` / `rows` 仍输出纯文本（`μmax`、`m²`）供 Excel/CSV 导出，互不干扰。验证：`A[m^{2}]` / `K_{a}[m^{2}/g]` / `μ_{max}[day^{−1}]` 的 rich 标记与 plain 文本均正确生成。
 
+**嵌套上下标**：LLM 会输出嵌套标记如 `m_{DO_{2}}`（原图是 m 的下标 DO₂），正则无法匹配嵌套花括号，导致显示为字面 `m_{DO2}`、导出也带标记。修复：`RichCell` 改为栈式解析（计嵌套深度），`toPlainText` 循环剥离最内层标记直到无残留。验证：`m_{DO_{2}}` 渲染为 m 的下标含 DO 再含 2 的下标；plain 为 `mDO2`。另在 LLM 校验失败时输出具体错误原因与原文片段，便于排查偶发的 `LLM output failed validation`。
+
 **段落假表过滤**：`isLikelyProse` 检测表头全空、50% 以上 cell 是无数字多词句子的"表"，判定为正文段落并丢弃——此前正文段落被 LLM 误当表格输出（5 列假表）。验证：002 样本从 3 表（含 1 假表）→ 2 真表。全量回归约 77%–80%（token 匹配口径波动），表数 51–54/54。
 
 未引入视觉模型，DeepSeek Key 不变，成本不变。canvas 依赖已卸载。
