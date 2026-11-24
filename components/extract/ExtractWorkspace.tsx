@@ -18,6 +18,8 @@ const steps = [
 ];
 
 export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Props) {
+  const [pageCount, setPageCount] = useState(totalPages);
+  const [llmActive, setLlmActive] = useState<boolean | null>(null);
   const [tables, setTables] = useState<TableData[]>([]);
   const [selectedId, setSelectedId] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -44,6 +46,8 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
       setTables(result.tables);
       setSelectedId(result.tables[0]?.id ?? '');
       setLlmErrors(result.llmErrors ?? []);
+      if (result.totalPages > 0) setPageCount(result.totalPages);
+      setLlmActive((result.tables ?? []).some((t) => t.source !== 'rules') || !!result.llmUsage?.length);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Extraction failed');
     } finally {
@@ -156,8 +160,18 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
             </span>
             <div>
               <div className="text-[15px]">{fileName}</div>
-              <div className="text-[12px] text-muted">
-                {totalPages} pages · {tables.length} {tables.length === 1 ? 'table' : 'tables'} detected
+              <div className="text-[12px] text-muted flex items-center gap-2">
+                <span>{pageCount || '?'} pages · {tables.length} {tables.length === 1 ? 'table' : 'tables'} detected</span>
+                {!loading && llmActive === false && (
+                  <span className="text-amber bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                    Rule-only · AI not configured
+                  </span>
+                )}
+                {!loading && llmActive === true && (
+                  <span className="text-violet-600 bg-violet-50 border border-violet-200 rounded px-1.5 py-0.5">
+                    AI assisted
+                  </span>
+                )}
               </div>
             </div>
             <a href="/" className="ml-auto text-[12px] text-primary flex items-center gap-1 hover:underline">
@@ -219,7 +233,16 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
                         </span>
                       </button>
                     ))}
-                    {!tables.length && <div className="text-[12px] text-muted">No tables detected.</div>}
+                    {!tables.length && !loading && (
+                      <div className="text-[12px] text-muted space-y-2">
+                        <p>No tables detected.</p>
+                        {llmActive === false && (
+                          <p className="text-warning text-[11px]">
+                            AI assisted is not configured on the server. Enable LLM_API_KEY to detect tables in complex PDFs.
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 
