@@ -151,8 +151,13 @@ function normalizeMarkup(text: string): string {
   // Strip PDF control characters used by symbol fonts (e.g. \u0011 for an
   // overline/binom glyph) — they render as invisible/box glyphs in the UI.
   let out = text.replace(/[\u0000-\u001F\u007F]/g, '').trim();
-  // Fold chained superscripts: 98.87^{±}^{0.00} -> 98.87^{±0.00}
-  out = out.replace(/\^\{([^{}]*)\}\^\{([^{}]*)\}/g, '^{$1$2}');
+  // Fold chained superscripts repeatedly: ε^{−2}^{k/}^{(2σ}^{+k}^{)} ->
+  // ε^{−2k/(2σ+k)}. PDF symbol fonts split one superscript into many runs.
+  let prev: string;
+  do {
+    prev = out;
+    out = out.replace(/\^\{([^{}]*)\}\^\{([^{}]*)\}/g, '^{$1$2}');
+  } while (out !== prev);
   return out;
 }
 
@@ -314,13 +319,28 @@ function rebuildHeaderRowsFromCoords(
   const centers = groups.map((g) => (g.left + g.right) / 2);
 
   // Header visual rows above the data row, using 8pt tolerance for sub/superscripts.
-  const allHeaderRows = cluster(8).filter(
+  const allHeaderRows = cluster(10).filter(
     (r) => r.every((c) => c.y < dataY - 4) && dataY - r[0].y < 60
   );
   if (!allHeaderRows.length) return null;
 
   const rowLines = allHeaderRows.map((vr) => {
-    const rich = reconstructRichText(vr).filter((c) => c.richText.trim());
+    let rich = reconstructRichText(vr).filter((c) => c.richText.trim());
+    // Fuse neighbouring fragments that belong to one glyph group (e.g. the
+    // radical "√" sitting a few points above "s_{NN}"). reconstructRichText
+    // only merges within a strict y band; header symbols are often offset.
+    const fused: typeof rich = [];
+    for (const cell of [...rich].sort((a, b) => a.x - b.x || a.y - b.y)) {
+      const last = fused[fused.length - 1];
+      if (last && cell.x - (last.x + last.width) <= 4 && Math.abs(cell.y - last.y) <= 10) {
+        last.richText += cell.richText;
+        last.width = cell.x + cell.width - last.x;
+        last.y = Math.min(last.y, cell.y);
+      } else {
+        fused.push({ ...cell });
+      }
+    }
+    rich = fused;
     const line = Array.from({ length: colCount }, () => '');
     let mapped = false;
     for (const cell of rich) {
@@ -334,20 +354,22 @@ function rebuildHeaderRowsFromCoords(
       for (let c = 0; c < colCount; c++) {
         if (centers[c] >= left - 12 && centers[c] <= right + 12) coveredCols.push(c);
       }
-      if (coveredCols.length) {
+      if (coveredCols.length > 1) {
+        // Wide parent group label spanning several columns: repeat it.
         for (const c of coveredCols) line[c] = text;
         mapped = true;
         continue;
       }
-      // Otherwise snap to the nearest column centre.
+      // Narrow label: snap to the nearest column centre and append rather than
+      // overwrite — multiple fragments (e.g. "log" + "d_{2}") share one cell.
       let nearest = -1;
       let bestDist = Infinity;
       for (let c = 0; c < colCount; c++) {
         const d = Math.abs(centers[c] - (left + (right - left) / 2));
         if (d < bestDist) { bestDist = d; nearest = c; }
       }
-      if (nearest >= 0 && bestDist <= 45 && !line[nearest]) {
-        line[nearest] = text;
+      if (nearest >= 0 && bestDist <= 45) {
+        line[nearest] = line[nearest] ? line[nearest] + text : text;
         mapped = true;
       }
     }
@@ -414,6 +436,24 @@ function rebuildHeaderRowsFromCoords(
       for (const c of cur) {
         rebuilt[ri - 1][c] = rebuilt[ri][c];
         rebuilt[ri + 1][c] = rebuilt[ri][c];
+      }
+    }
+  }
+
+  // Two full header lines with no rowSpan relationship are two lines of the
+  // same row-spanning cells (e.g. "colliding"/"nuclei", "√sNN"/"TeV"). Join
+  // them into the first line; columns repeated across the first line are
+  // parent group labels (colSpan) and keep their child line as-is.
+  if (rebuilt.length === 2) {
+    const [top, bottom] = rebuilt;
+    const allFilled = top.every(Boolean) && bottom.every(Boolean);
+    const hasRowSpan = top.some((text, c) => text && text === bottom[c]);
+    if (allFilled && !hasRowSpan) {
+      for (let c = 0; c < colCount; c++) {
+        if (top.filter((t) => t === top[c]).length > 1) continue; // parent colSpan
+        const joined = `${top[c]} ${bottom[c]}`;
+        top[c] = joined;
+        bottom[c] = joined; // repeat so rowSpan merges into one tall cell
       }
     }
   }
