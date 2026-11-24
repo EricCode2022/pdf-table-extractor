@@ -207,9 +207,11 @@ LLM 对多级表头的输出存在波动：003 样本中把 `Diversity` 错误�
 跨行标签（如 Method/Latency）：PDF 表头实际有 3 个视觉行（父分组 y、垂直居中的跨行标签 y、子列 y），LLM 压平成 2 行且把跨行标签只放子行，导致 rowSpan 不触发。校正函数识别"中间视觉行"，将其标签（按 x 最近列匹配）同时写入父行和子行，触发 rowSpan 合并。003 最终合并结构：
 ```
 row0: Method[r2c1] | Latency[r2c1] | Diversity[r1c2] | GenEval[r1c1] | DPG[r1c1]
-row1: LPIPS[r1c1] | CLIP[r1c1] | Overall[r1c2]
+row1: LPIPS[r1c1] | CLIP[r1c1] | Overall[r1c1] | Overall[r1c1]
 ```
 与原文表格的单元格合并完全一致。
+
+子行合并规则：`TableHeader` 与 Excel 导出中，相邻相同的子行单元格只有在父行对应文本也相同时才用 `colSpan` 合并。避免 GenEval/DPG 两个不同父列下的 `Overall` 被错误合并成一个跨列单元格（原图中它们是两个独立单元格）。父行（ri=0，无父行）仍按相邻相同文本合并。
 
 全量真实样本回归 77.8%（在 77–80% 的正常 LLM 波动范围内），无退化。
 

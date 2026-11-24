@@ -45,7 +45,10 @@ export async function buildExcel(tables: TableData[]): Promise<Buffer> {
             !covered[ri][c + colSpan] &&
             textAt(ri, c + colSpan) === text &&
             rowSpanAt(ri, c + colSpan) === rowSpan &&
-            text !== ''
+            text !== '' &&
+            // Child cells merge only when their parents match; two "Overall"
+            // under different parent groups must remain separate.
+            (ri === 0 || (textAt(ri - 1, c) !== '' && textAt(ri - 1, c) === textAt(ri - 1, c + colSpan)))
           ) colSpan++;
           if (rowSpan > 1 || colSpan > 1) sheet.mergeCells(ri + 1, c + 1, ri + rowSpan, c + colSpan);
           c += colSpan;

@@ -75,7 +75,11 @@ export function TableHeader({
             !covered[ri][c + colSpan] &&
             textAt(ri, c + colSpan) === text &&
             rowSpanAt(ri, c + colSpan) === rowSpan &&
-            text !== ''
+            text !== '' &&
+            // A child cell may only merge with a neighbour when their parent
+            // cells are also identical; e.g. two "Overall" under different
+            // parents (GenEval / DPG) must stay separate as in the source PDF.
+            (ri === 0 || (textAt(ri - 1, c) !== '' && textAt(ri - 1, c) === textAt(ri - 1, c + colSpan)))
           ) colSpan++;
 
           cells.push(
