@@ -116,9 +116,43 @@ async function callLlm(prompt: string, config: LlmConfig): Promise<{ content: st
   }
 }
 
+function isProseCell(text: string): boolean {
+  const t = text.trim();
+  if (t.length < 12) return false;
+  const words = t.split(/\s+/);
+  if (words.length < 2) return false;
+  return !/\d/.test(t);
+}
+
+function isLikelyProse(t: z.infer<typeof LLM_TABLE>): boolean {
+  const headerEmpty = t.headers.every((h) => !h.trim());
+  if (!headerEmpty) return false;
+  const cells = t.rows.flat();
+  if (cells.length === 0) return false;
+  const proseCount = cells.filter(isProseCell).length;
+  return proseCount / cells.length >= 0.5;
+}
+
+const SUPERSCRIPT_MAP: Record<string, string> = {
+  '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵',
+  '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', '-': '⁻', '+': '⁺',
+  '∘': '°', 'o': '°',
+};
+
+function toSuperscript(s: string): string {
+  if (s === '∘' || s === 'o') return '°';
+  if (/^[-+]?\d+$/.test(s)) return [...s].map((ch) => SUPERSCRIPT_MAP[ch] ?? ch).join('');
+  return s;
+}
+
 function cleanCellText(text: string): string {
-  // LLM sometimes emits chained superscripts like 98.87^{±}^{0.00}; fold them.
-  return text.replace(/\^\{([^{}]*)\}\^\{([^{}]*)\}/g, '^{$1$2}');
+  // Fold chained superscripts: 98.87^{±}^{0.00} -> 98.87^{±0.00}
+  let out = text.replace(/\^\{([^{}]*)\}\^\{([^{}]*)\}/g, '^{$1$2}');
+  // Subscripts: μ_{max} -> μmax (inline, matching the visual label)
+  out = out.replace(/_\{([^{}]{1,12})\}/g, '$1');
+  // Superscripts: ^{2} -> ², ^{-1} -> ⁻¹, ^{∘} -> °; otherwise drop braces
+  out = out.replace(/\^\{([^{}]{1,12})\}/g, (_, s: string) => toSuperscript(s));
+  return out;
 }
 
 function trimTrailingEmpty(arr: string[]): string[] {
@@ -210,7 +244,7 @@ export async function extractPageWithLlm(
         error: 'LLM output failed validation; kept rule-based result',
       };
     }
-    const pageTables: TableData[] = parsed.tables.map((t, i) => {
+    const pageTables: TableData[] = parsed.tables.filter((t) => !isLikelyProse(t)).map((t, i) => {
       const { table: n, columnCount, mergedColumns } = normalizeTable(t);
       const warnings = ['AI assisted extraction; please review'];
       if (mergedColumns.length) {
