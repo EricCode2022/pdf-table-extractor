@@ -4,6 +4,12 @@ import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
 export async function POST(request: Request) {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return NextResponse.json(
+      { error: 'BLOB_READ_WRITE_TOKEN is not configured. Create a Blob store in Vercel and redeploy.' },
+      { status: 500 }
+    );
+  }
   try {
     const body = (await request.json()) as HandleUploadBody;
     const jsonResponse = await handleUpload({
@@ -16,7 +22,6 @@ export async function POST(request: Request) {
           allowedContentTypes: ['application/pdf'],
           maximumSizeInBytes: 20 * 1024 * 1024,
           addRandomSuffix: true,
-          ttlDays: 1,
         };
       },
       onUploadCompleted: async () => {},

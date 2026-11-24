@@ -2,5 +2,7 @@ node_modules
 .next
 .tmp
 .env.local
+.env*.local
 *.log
+*.tsbuildinfo
 .DS_Store

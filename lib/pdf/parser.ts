@@ -18,7 +18,11 @@ export type PageData = {
 
 export async function parsePdf(buffer: Buffer, maxPages: number): Promise<PageData[]> {
   const data = new Uint8Array(buffer);
-  const doc = await pdfjsLib.getDocument({ data, useSystemFonts: true }).promise;
+  const doc = await pdfjsLib.getDocument({
+    data,
+    useSystemFonts: true,
+    isEvalSupported: false,
+  }).promise;
   const pages: PageData[] = [];
   const count = Math.min(doc.numPages, maxPages);
   for (let i = 1; i <= count; i++) {
