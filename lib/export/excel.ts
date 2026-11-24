@@ -16,15 +16,39 @@ export async function buildExcel(tables: TableData[]): Promise<Buffer> {
     const sheet = workbook.addWorksheet(name.slice(0, 31));
     const headerRows = table.headerRows?.filter((hr) => hr.some((h) => h.trim() !== ''));
     if (headerRows && headerRows.length > 0) {
-      for (const hr of headerRows) sheet.addRow(hr);
+      const cols = Math.max(...headerRows.map((hr) => hr.length));
+      const textAt = (ri: number, c: number) => (headerRows[ri]?.[c] ?? '').trim();
+
+      // A cell equal to the one directly above it is covered by that cell's rowSpan.
+      const covered = headerRows.map((_, ri) =>
+        Array.from({ length: cols }, (_, c) => ri > 0 && textAt(ri, c) !== '' && textAt(ri, c) === textAt(ri - 1, c))
+      );
+      const rowSpanAt = (ri: number, c: number): number => {
+        let span = 1;
+        for (let r = ri + 1; r < headerRows.length && covered[r][c]; r++) span++;
+        return span;
+      };
+
       headerRows.forEach((hr, ri) => {
-        let c = 1;
-        while (c <= hr.length) {
-          const text = hr[c - 1] ?? '';
-          let span = 1;
-          while (c + span <= hr.length && (hr[c + span - 1] ?? '') === text && text.trim() !== '') span++;
-          if (span > 1) sheet.mergeCells(ri + 1, c, ri + 1, c + span - 1);
-          c += span;
+        sheet.addRow(Array.from({ length: cols }, (_, c) => (covered[ri][c] ? '' : hr[c] ?? '')));
+      });
+
+      headerRows.forEach((_, ri) => {
+        let c = 0;
+        while (c < cols) {
+          if (covered[ri][c]) { c++; continue; }
+          const text = textAt(ri, c);
+          const rowSpan = rowSpanAt(ri, c);
+          let colSpan = 1;
+          while (
+            c + colSpan < cols &&
+            !covered[ri][c + colSpan] &&
+            textAt(ri, c + colSpan) === text &&
+            rowSpanAt(ri, c + colSpan) === rowSpan &&
+            text !== ''
+          ) colSpan++;
+          if (rowSpan > 1 || colSpan > 1) sheet.mergeCells(ri + 1, c + 1, ri + rowSpan, c + colSpan);
+          c += colSpan;
         }
       });
     } else if (table.headers.some((h) => h.trim() !== '')) {
