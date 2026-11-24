@@ -204,7 +204,14 @@ LLM 对多级表头的输出存在波动：003 样本中把 `Diversity` 错误�
 ```
 预览合并为 `Method[跨2行] | Latency[跨2行] | Diversity[跨2列] | GenEval | DPG`，Excel 合并区域 `C1:D1, A1:A2, B1:B2`，与原图一致。
 
-全量真实样本回归 78.1%（较校正前 77.5% 略升，在 LLM 波动范围内），无退化。
+跨行标签（如 Method/Latency）：PDF 表头实际有 3 个视觉行（父分组 y、垂直居中的跨行标签 y、子列 y），LLM 压平成 2 行且把跨行标签只放子行，导致 rowSpan 不触发。校正函数识别"中间视觉行"，将其标签（按 x 最近列匹配）同时写入父行和子行，触发 rowSpan 合并。003 最终合并结构：
+```
+row0: Method[r2c1] | Latency[r2c1] | Diversity[r1c2] | GenEval[r1c1] | DPG[r1c1]
+row1: LPIPS[r1c1] | CLIP[r1c1] | Overall[r1c2]
+```
+与原文表格的单元格合并完全一致。
+
+全量真实样本回归 77.8%（在 77–80% 的正常 LLM 波动范围内），无退化。
 
 生产构建 `npx next build` 通过，12 个路由全部生成。
 

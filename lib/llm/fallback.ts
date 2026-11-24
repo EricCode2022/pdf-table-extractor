@@ -292,7 +292,9 @@ function correctParentHeaderFromCoords(
   if (groups.length !== colCount) return null;
   const centers = groups.map((g) => (g.left + g.right) / 2);
 
-  // Parent header line = the topmost visual row within 70pt above the data row.
+  // Header visual rows within 70pt above the data row. A multi-level header
+  // may have a middle row (e.g. Method/Latency vertically centred) between the
+  // parent group row and the child column row — LLM flattens it into one line.
   const headerVisual = visualRows.filter((r) => r[0].y < dataY - 4 && dataY - r[0].y < 70);
   if (!headerVisual.length) return null;
   const parentCells = [...headerVisual[0]].sort((a, b) => a.x - b.x);
@@ -312,8 +314,35 @@ function correctParentHeaderFromCoords(
       }
     }
   }
-  if (!changed) return null;
   rebuilt[0] = parentLine;
+
+  // Middle visual rows hold labels that span the parent and child header lines
+  // (e.g. Method/Latency). Write them into BOTH lines so the renderer's rowSpan
+  // detection merges them into a single vertically-centred cell, as in the PDF.
+  if (headerRows.length >= 2 && headerVisual.length > 2) {
+    for (let vr = 1; vr < headerVisual.length - 1; vr++) {
+      for (const cell of headerVisual[vr]) {
+        const text = cell.text.trim();
+        if (!text) continue;
+        const cx = cell.x + cell.width / 2;
+        let nearest = -1;
+        let bestDist = Infinity;
+        for (let c = 0; c < colCount; c++) {
+          const d = Math.abs(centers[c] - cx);
+          if (d < bestDist) { bestDist = d; nearest = c; }
+        }
+        if (nearest < 0 || bestDist > 60) continue;
+        for (const lineIndex of [0, 1]) {
+          if (rebuilt[lineIndex][nearest] !== text) {
+            rebuilt[lineIndex][nearest] = text;
+            changed = true;
+          }
+        }
+      }
+    }
+  }
+
+  if (!changed) return null;
   return rebuilt;
 }
 
