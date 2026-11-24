@@ -70,6 +70,8 @@ function buildPagePrompt(page: PageData, ruleTables: TableData[]): string {
     'Return ONLY JSON: {"tables":[{"headers":["..."],"rows":[["..."]],"confidence":0.0}]}',
     'Rules: do not invent data; preserve numbers exactly; if a table has no header, return headers: []; include every table you can find.',
     'IMPORTANT: In "Rebuilt text", each element with the same y is ONE cell/column. Do not merge two different elements into one cell, even if they look related. Rebuilt text already merges sub/superscripts (a_{b}, a^{b}), split math symbols (ETT), and multiplied expressions (N_{x}×N_{y}×N_{z}) into single elements — keep them as ONE header, never split them. Map each element to exactly one column by its x position.',
+    'CRITICAL: The number of columns is determined by the DATA ROWS (look at how many distinct x positions appear in data rows like numbers), NOT by the header rows. Multi-level headers often span multiple columns and may have FEWER text items than data columns — never shrink the table to match the header. If a header has fewer cells than data rows, pad headers with "" so every row has the SAME column count. NEVER drop a data value (e.g. a rightmost repeated number) just because no header sits above it.',
+    'Example: 9 data columns "10|0.53|45|3.8|10000|0.63|120|4.8|63096" with grouped header "k=2" over first 4 columns and "k=3" over last 4. Output headers must have EXACTLY 9 cells, one per data column — e.g. ["d","beta","d/2","log","eps","beta","d/3","log","eps"]. Never merge math into fewer header cells, never add extra header cells beyond the data column count.',
     '',
     `Page number: ${page.pageNumber}`,
     `Page size: ${Math.round(page.width)}x${Math.round(page.height)}`,
