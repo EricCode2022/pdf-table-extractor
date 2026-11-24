@@ -5,6 +5,7 @@ import { reconstructRichText } from '@/lib/pdf/richtext';
 
 const LLM_TABLE = z.object({
   headers: z.array(z.string()),
+  headerRows: z.array(z.array(z.string())).optional(),
   rows: z.array(z.array(z.string())),
   confidence: z.number().min(0).max(1),
 });
@@ -67,11 +68,12 @@ function buildPagePrompt(page: PageData, ruleTables: TableData[]): string {
   return [
     'Extract ALL tables from this PDF page. Text items have (text, x, y); y increases downward, x increases rightward.',
     'Group items into tables by spatial proximity. Multiple tables may appear side by side or stacked.',
-    'Return ONLY JSON: {"tables":[{"headers":["..."],"rows":[["..."]],"confidence":0.0}]}',
-    'Rules: do not invent data; preserve numbers exactly; preserve words exactly including first letters (e.g. CLOAK, not LOAK); if a table has no header, return headers: []; include every table you can find.',
+    'Return ONLY JSON: {"tables":[{"headers":["..."],"headerRows":[["..."],["..."]],"rows":[["..."]],"confidence":0.0}]}',
+    'Rules: do not invent data; preserve numbers exactly; preserve words exactly including first letters (e.g. CLOAK, not LOAK); if a table has no header, return headers: [] and headerRows: []; include every table you can find.',
+    'Multi-level headers: use "headerRows" (array of header lines, each line has EXACTLY the same number of cells as data columns). For a parent header spanning several columns, REPEAT its text in every column it covers (e.g. Diversity over 3 columns -> "Diversity" in all 3 cells of that header line). Use "" for cells the header does not cover. "headers" must be a single flattened line: for each column join non-empty header parts with "/" (e.g. "Diversity/LPIPS").',
     'IMPORTANT: In "Rebuilt text", each element with the same y is ONE cell/column. Do not merge two different elements into one cell, even if they look related. Rebuilt text already merges sub/superscripts (a_{b}, a^{b}), split math symbols (ETT), and multiplied expressions (N_{x}×N_{y}×N_{z}) into single elements — keep them as ONE header, never split them. Map each element to exactly one column by its x position.',
     'CRITICAL: The number of columns is determined by the DATA ROWS (look at how many distinct x positions appear in data rows like numbers), NOT by the header rows. Multi-level headers often span multiple columns and may have FEWER text items than data columns — never shrink the table to match the header. If a header has fewer cells than data rows, pad headers with "" so every row has the SAME column count. NEVER drop a data value (e.g. a rightmost repeated number) just because no header sits above it.',
-    'Example: 9 data columns "10|0.53|45|3.8|10000|0.63|120|4.8|63096" with grouped header "k=2" over first 4 columns and "k=3" over last 4. Output headers must have EXACTLY 9 cells, one per data column — e.g. ["d","beta","d/2","log","eps","beta","d/3","log","eps"]. Never merge math into fewer header cells, never add extra header cells beyond the data column count.',
+    'Example (7 columns, 2 header lines): parent "Diversity" covers columns 3-5, "GenEval" col 6, "DPG" col 7, child line "Method|Latency|LPIPS|CLIP|Overall|Overall|Overall". headerRows = [["","","Diversity","Diversity","Diversity","GenEval","DPG"],["Method","Latency","LPIPS","CLIP","Overall","Overall","Overall"]]. headers = ["Method","Latency","Diversity/LPIPS","Diversity/CLIP","Diversity/Overall","GenEval/Overall","DPG/Overall"].',
     'Preserve EVERY character in labels, including math/italic letters like 𝒟, 𝒟_{test}-VQA must keep the 𝒟. Do not drop leading letters or symbols from labels.',
     'Include footnote/statistics rows that sit directly below a table (e.g. "Pearson Correlation: r = 0.9587, p = 0.04129") as a final row of that table. Put the whole text in the first cell and leave other cells empty — never omit it.',
     '',
@@ -175,43 +177,49 @@ function normalizeTable(t: z.infer<typeof LLM_TABLE>): {
   columnCount: number;
   mergedColumns: number[];
 } {
-  let headers = t.headers.map(normalizeMarkup).map((h) => (/^column\s+\d+$/i.test(h.trim()) ? '' : h));
-  let rows = t.rows.map((row) => row.map(normalizeMarkup));
-
-  rows = rows.map(trimTrailingEmpty);
-  headers = trimTrailingEmpty(headers);
+  const clean = (s: string) => (/^column\s+\d+$/i.test(s.trim()) ? '' : normalizeMarkup(s));
+  let rows = t.rows.map((row) => row.map(normalizeMarkup)).map(trimTrailingEmpty);
+  let headerRows = (t.headerRows ?? [t.headers]).map((hr) => hr.map(clean));
+  let headers = t.headers.map(clean);
 
   const dataCols = Math.max(0, ...rows.map((r) => r.length));
-  const colCount = dataCols > 0 ? dataCols : headers.length;
+  const colCount = dataCols > 0 ? dataCols : Math.max(headers.length, ...headerRows.map((hr) => hr.length), 0);
 
-  const normalizedHeaders = headers.slice(0, colCount);
-  while (normalizedHeaders.length < colCount) normalizedHeaders.push('');
-  const normalizedRows = rows.map((row) => {
-    const r = row.slice(0, colCount);
-    while (r.length < colCount) r.push('');
-    return r;
-  });
+  const fit = (arr: string[]) => {
+    const a = arr.slice(0, colCount);
+    while (a.length < colCount) a.push('');
+    return a;
+  };
+  headerRows = headerRows.map(fit);
+  headers = fit(headers);
+  const normalizedRows = rows.map(fit);
 
-  // Remove columns that are empty in the header AND every data row (multi-level
-  // header placeholders). Keep at least one column.
+  // Drop columns empty in every header row and every data row.
   const keepCols: number[] = [];
   for (let c = 0; c < colCount; c++) {
-    const headerEmpty = !normalizedHeaders[c]?.trim();
+    const headerEmpty = !headers[c]?.trim() && headerRows.every((hr) => !hr[c]?.trim());
     const allRowsEmpty = normalizedRows.every((r) => !r[c]?.trim());
     if (!(headerEmpty && allRowsEmpty)) keepCols.push(c);
   }
   if (keepCols.length > 0 && keepCols.length < colCount) {
-    const filteredHeaders = keepCols.map((c) => normalizedHeaders[c]);
-    const filteredRows = normalizedRows.map((row) => keepCols.map((c) => row[c]));
-    normalizedHeaders.length = 0;
-    normalizedHeaders.push(...filteredHeaders);
-    normalizedRows.length = 0;
-    normalizedRows.push(...filteredRows);
+    headers = keepCols.map((c) => headers[c]);
+    headerRows = headerRows.map((hr) => keepCols.map((c) => hr[c]));
+    for (let i = 0; i < normalizedRows.length; i++) normalizedRows[i] = keepCols.map((c) => normalizedRows[i][c]);
   }
 
-  const finalColCount = normalizedHeaders.length;
+  const finalColCount = headers.length;
+  headerRows = headerRows.map((hr) => fitTo(hr, finalColCount));
 
-  // Detect vertically merged cells: first row has a value, all following rows empty in same column.
+  // Rebuild flattened headers from headerRows: join non-empty parts per column with "/".
+  // De-duplicate consecutive repeats (parent text repeated across spanned columns stays in each column).
+  if (headerRows.length > 0) {
+    headers = Array.from({ length: finalColCount }, (_, c) => {
+      const parts = headerRows.map((hr) => hr[c]?.trim() ?? '').filter(Boolean);
+      const dedup = parts.filter((p, i) => i === 0 || p !== parts[i - 1]);
+      return dedup.join('/');
+    });
+  }
+
   const mergedColumns: number[] = [];
   if (normalizedRows.length >= 2 && finalColCount > 1) {
     for (let c = 0; c < finalColCount; c++) {
@@ -225,10 +233,16 @@ function normalizeTable(t: z.infer<typeof LLM_TABLE>): {
   }
 
   return {
-    table: { headers: normalizedHeaders, rows: normalizedRows, confidence: t.confidence },
+    table: { headers, headerRows, rows: normalizedRows, confidence: t.confidence },
     columnCount: finalColCount,
     mergedColumns,
   };
+}
+
+function fitTo(arr: string[], n: number): string[] {
+  const a = arr.slice(0, n);
+  while (a.length < n) a.push('');
+  return a;
 }
 
 export async function extractPageWithLlm(
@@ -271,6 +285,8 @@ export async function extractPageWithLlm(
         rows: n.rows.map((row) => row.map(toPlainText)),
         headersRich: n.headers,
         rowsRich: n.rows,
+        headerRows: (n.headerRows ?? []).map((hr) => hr.map(toPlainText)),
+        headerRowsRich: n.headerRows ?? [],
         confidence: n.confidence,
         source: 'llm' as const,
         warnings,

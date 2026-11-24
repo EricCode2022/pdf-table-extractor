@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Header } from '@/components/layout/Header';
 import { RichCell } from './RichCell';
+import { TableHeader } from './TableHeader';
 import {
   CheckCircle2, Table2, LockKeyhole, FileText, RefreshCw, Pencil,
   Download, ChevronDown, ShieldCheck, AlertTriangle, Sparkles, Loader2, ArrowRight,
@@ -256,19 +257,17 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
                     <div className="overflow-x-auto border border-line rounded-lg max-w-full">
                       <table className="min-w-full w-max text-[12px] border-collapse">
                         <thead>
-                          <tr className="bg-slate-50">
-                            {(editing ? draft!.headers : active.headers).map((h, c) => (
-                              <th key={c} className="border-b border-line text-left px-3 py-2.5 font-normal whitespace-nowrap">
-                                {editing ? (
-                                  <input
-                                    value={draft!.headers[c]}
-                                    onChange={(e) => setDraft((prev) => prev ? { ...prev, headers: prev.headers.map((v, i) => i === c ? e.target.value : v) } : prev)}
-                                    className="w-full border border-line rounded px-1 py-0.5 bg-white"
-                                  />
-                                ) : h ? <RichCell text={active.headersRich?.[c] ?? h} /> : `Column ${c + 1}`}
-                              </th>
-                            ))}
-                          </tr>
+                          <TableHeader
+                            headerRows={active.headerRows}
+                            headers={active.headers}
+                            headersRich={active.headersRich}
+                            columnCount={active.columnCount}
+                            editing={editing}
+                            draftHeaders={draft?.headers}
+                            onEdit={(c, value) => setDraft((prev) =>
+                              prev ? { ...prev, headers: prev.headers.map((v, i) => i === c ? value : v) } : prev
+                            )}
+                          />
                         </thead>
                         <tbody>
                           {(editing ? draft!.rows : active.rows).map((row, r) => (

@@ -11,6 +11,8 @@ export const TableSchema = z.object({
   rows: z.array(z.array(z.string())),
   headersRich: z.array(z.string()).optional(),
   rowsRich: z.array(z.array(z.string())).optional(),
+  headerRows: z.array(z.array(z.string())).optional(),
+  headerRowsRich: z.array(z.array(z.string())).optional(),
   confidence: z.number().min(0).max(1),
   source: z.enum(['rules', 'llm', 'hybrid']),
   warnings: z.array(z.string()),
