@@ -247,3 +247,21 @@ LLM_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
 LLM_MODEL=qwen-plus
 ```
 或 OpenAI：`LLM_BASE_URL=https://api.openai.com/v1`、`LLM_MODEL=gpt-4o-mini`。代码无需改动，仅换环境变量。
+
+站点 URL 可用 `NEXT_PUBLIC_SITE_URL` 覆盖（默认 Vercel 域名），换正式域名时只需改这一个环境变量，metadata / canonical / sitemap / OG 都会跟着更新。
+
+## 8. SEO 优化（P0 + P1 + P2 完成）
+
+| 项目 | 实现 |
+|---|---|
+| 站点常量 | `lib/site.ts` 统一管理域名/描述；`lib/seo.ts` 页面 metadata helper |
+| metadata | 根布局含 metadataBase、title 模板、关键词、OG、Twitter、canonical；各页面独立 metadata；`/extract` 工具页设 noindex |
+| OG 图 | `app/opengraph-image.tsx` 用 `ImageResponse` 动态生成 1200×630 PNG |
+| sitemap | `app/sitemap.ts` 生成，含 9 个可索引页面（首页、how-it-works、privacy、terms、5 个专题页），优先级分级 |
+| robots | `app/robots.ts`，禁止索引 `/extract`、`/api/` |
+| SEO 专题页 | `/pdf-to-excel`、`/pdf-to-csv`、`/extract-tables-from-pdf`、`/convert-pdf-table-to-excel`、`/extract-table-from-scanned-pdf`，各有独立内容、示例表格、适用/限制说明与互相内链；扫描件页如实说明当前不支持 OCR |
+| 结构化数据 | `components/seo/JsonLd.tsx`：首页注入 SoftwareApplication + FAQPage JSON-LD |
+| FAQ | 首页 5 条常见问题（免费、支持格式、隐私、编辑、AI），用 `details/summary` 语义标签，同时作为 FAQPage 数据源 |
+| 内链 | 首页 Use cases 区块链接 5 个专题页；Header 保留 How it Works / Privacy / Terms |
+
+构建产物验证：`sitemap.xml` 含 9 个 URL，`robots.txt` 规则正确，21 个路由全部生成，无警告。

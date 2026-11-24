@@ -1,6 +1,14 @@
 import Link from 'next/link';
+import type { Metadata } from 'next';
 import { Header } from '@/components/layout/Header';
+import { pageMetadata } from '@/lib/seo';
 import { UploadCloud, Table2, Download, ShieldCheck } from 'lucide-react';
+
+export const metadata: Metadata = pageMetadata({
+  title: 'How It Works',
+  description: 'Learn how PDF Table Extractor turns PDF tables into Excel or CSV in three simple steps: upload, detect, and export.',
+  path: '/how-it-works',
+});
 
 const steps = [
   { icon: UploadCloud, title: 'Upload your PDF', desc: 'Drag and drop a digital PDF (up to 20 MB, 50 pages). No signup required.' },

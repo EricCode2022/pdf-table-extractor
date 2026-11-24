@@ -1,4 +1,12 @@
+import type { Metadata } from 'next';
 import { Header } from '@/components/layout/Header';
+import { pageMetadata } from '@/lib/seo';
+
+export const metadata: Metadata = pageMetadata({
+  title: 'Terms of Service',
+  description: 'Terms and usage rules for PDF Table Extractor, a free online tool for extracting PDF tables to Excel and CSV.',
+  path: '/terms',
+});
 
 export default function TermsPage() {
   return (

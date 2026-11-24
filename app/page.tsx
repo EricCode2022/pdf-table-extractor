@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { Header } from '@/components/layout/Header';
 import { Dropzone } from '@/components/upload/Dropzone';
+import { SoftwareJsonLd, FaqJsonLd, FAQS } from '@/components/seo/JsonLd';
+import { SEO_PAGES } from '@/lib/seo-pages';
 import { ShieldCheck, FileSpreadsheet, UserRound, UploadCloud, Table2, Download, ArrowRight } from 'lucide-react';
 
 const steps = [
@@ -12,6 +14,8 @@ const steps = [
 export default function HomePage() {
   return (
     <main className="min-h-screen">
+      <SoftwareJsonLd />
+      <FaqJsonLd />
       <div className="max-w-6xl mx-auto">
         <Header />
       </div>
@@ -75,6 +79,33 @@ export default function HomePage() {
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section className="max-w-3xl mx-auto px-6 pb-12">
+        <h2 className="text-[22px] tracking-tight text-center">Use cases</h2>
+        <div className="grid sm:grid-cols-2 gap-3 mt-5">
+          {SEO_PAGES.map((page) => (
+            <Link key={page.path} href={page.path} className="card p-4 flex items-center justify-between hover:border-primary transition-colors">
+              <span className="text-[13px]">{page.title}</span>
+              <ArrowRight size={15} className="text-primary" />
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <section className="max-w-3xl mx-auto px-6 pb-14">
+        <h2 className="text-[22px] tracking-tight text-center">Frequently asked questions</h2>
+        <div className="mt-5 space-y-2">
+          {FAQS.map((faq) => (
+            <details key={faq.q} className="card p-4 group">
+              <summary className="cursor-pointer text-[14px] list-none flex items-center justify-between">
+                <span>{faq.q}</span>
+                <span className="text-primary text-[18px] group-open:rotate-45 transition-transform">+</span>
+              </summary>
+              <p className="text-[13px] text-muted mt-3">{faq.a}</p>
+            </details>
+          ))}
         </div>
       </section>
 

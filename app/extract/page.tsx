@@ -1,6 +1,9 @@
 import { Suspense } from 'react';
+import type { Metadata } from 'next';
 import { ExtractWorkspace } from '@/components/extract/ExtractWorkspace';
 import { Loader2 } from 'lucide-react';
+
+export const metadata: Metadata = { robots: { index: false, follow: false } };
 
 export default async function ExtractPage({
   searchParams,

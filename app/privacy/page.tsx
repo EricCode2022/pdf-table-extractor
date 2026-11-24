@@ -1,4 +1,12 @@
+import type { Metadata } from 'next';
 import { Header } from '@/components/layout/Header';
+import { pageMetadata } from '@/lib/seo';
+
+export const metadata: Metadata = pageMetadata({
+  title: 'Privacy Policy',
+  description: 'How PDF Table Extractor handles your files: no signup, temporary storage, automatic deletion, and optional AI-assisted processing.',
+  path: '/privacy',
+});
 
 export default function PrivacyPage() {
   return (
