@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { TableData } from '@/types/table';
 import type { PageData } from '@/lib/pdf/parser';
+import { reconstructRichText } from '@/lib/pdf/richtext';
 
 const LLM_TABLE = z.object({
   headers: z.array(z.string()),
@@ -53,16 +54,28 @@ function buildPagePrompt(page: PageData, ruleTables: TableData[]): string {
     x: Math.round(c.x),
     y: Math.round(c.y),
   }));
+  const rowRows: typeof page.cells[] = [];
+  const sortedByY = [...page.cells].sort((a, b) => a.y - b.y);
+  for (const cell of sortedByY) {
+    const row = rowRows.find((r) => Math.abs(r[0].y - cell.y) <= 4);
+    if (row) row.push(cell);
+    else rowRows.push([cell]);
+  }
+  const rich = rowRows
+    .flatMap((row) => reconstructRichText(row))
+    .map((c) => ({ t: c.richText, x: Math.round(c.x), y: Math.round(c.y) }));
   return [
-    'Extract ALL tables from this PDF page. The page text items have (text, x, y) coordinates; y increases downward, x increases rightward.',
+    'Extract ALL tables from this PDF page. Text items have (text, x, y); y increases downward, x increases rightward.',
     'Group items into tables by spatial proximity. Multiple tables may appear side by side or stacked.',
     'Return ONLY JSON: {"tables":[{"headers":["..."],"rows":[["..."]],"confidence":0.0}]}',
     'Rules: do not invent data; preserve numbers exactly; if a table has no header, return headers: []; include every table you can find.',
+    'IMPORTANT: In "Rebuilt text", each element with the same y is ONE cell/column. Do not merge two different elements into one cell, even if they look related. Rebuilt text already merges sub/superscripts (a_{b}, a^{b}), split math symbols (ETT), and multiplied expressions (N_{x}×N_{y}×N_{z}) into single elements — keep them as ONE header, never split them. Map each element to exactly one column by its x position.',
     '',
     `Page number: ${page.pageNumber}`,
     `Page size: ${Math.round(page.width)}x${Math.round(page.height)}`,
     `Rule-engine candidates (may be incomplete or wrong): ${JSON.stringify(ruleTables.map((t) => ({ headers: t.headers, rows: t.rows })))}`,
-    `Text items with coordinates: ${JSON.stringify(cells)}`,
+    `Rebuilt text (sub/superscripts merged): ${JSON.stringify(rich)}`,
+    `Raw text items with coordinates: ${JSON.stringify(cells)}`,
   ].join('\n');
 }
 
