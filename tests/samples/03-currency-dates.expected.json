@@ -1,0 +1,10 @@
+{
+  "tables": 1,
+  "headers": [
+    "Date",
+    "Description",
+    "Amount",
+    "Tax"
+  ],
+  "rows": 3
+}

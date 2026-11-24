@@ -1,0 +1,7 @@
+{
+  "tables": 2,
+  "tableDetails": [
+    { "headers": ["Product", "Price"], "rows": 2 },
+    { "headers": ["Service", "Rate"], "rows": 1 }
+  ]
+}

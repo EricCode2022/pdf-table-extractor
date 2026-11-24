@@ -1,0 +1,6 @@
+{
+  "tables": 1,
+  "headers": [],
+  "rows": 3,
+  "expectWarning": "Header row is missing; first row treated as data"
+}

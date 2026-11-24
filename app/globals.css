@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --blue: #315EE8;
+  --ink: #172033;
+  --muted: #64748B;
+  --bg: #F7F8FC;
+  --line: #E5E7EB;
+  --green: #16834A;
+  --amber: #B76B12;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-weight: 400;
+  line-height: 1.6;
+}
+
+* { box-sizing: border-box; }
+
+@layer components {
+  .site-header {
+        @apply flex items-center justify-between max-w-6xl mx-auto px-6 py-4;
+  }
+  .logo-mark {
+    @apply w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-white;
+  }
+  .nav-link {
+    @apply text-[13px] text-slate-600 px-2 py-1 rounded-md hover:bg-blue-50 hover:text-primary transition-colors;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 bg-primary text-white rounded-lg px-5 py-2.5 text-sm transition-colors hover:bg-blue-700;
+  }
+  .btn-outline {
+    @apply inline-flex items-center justify-center gap-2 border border-line bg-white text-ink rounded-lg px-4 py-2.5 text-sm transition-colors hover:border-primary hover:text-primary;
+  }
+  .card {
+    @apply bg-white border border-line rounded-xl shadow-card;
+  }
+  .card-soft {
+    @apply bg-white border border-line rounded-xl;
+  }
+  .trust-item {
+    @apply flex items-center gap-2 text-[12px] text-slate-600;
+  }
+}

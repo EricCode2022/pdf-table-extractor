@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="PDF Table Extractor 项目需求文档：Next.js、Vercel、功能需求、技术架构、UI参考与开发验收。">
+<title>PDF Table Extractor｜项目需求文档 V1.0</title>
+<style>
+:root{--blue:#315EE8;--ink:#172033;--muted:#64748b;--bg:#f4f7fb;--line:#e5eaf2;--green:#16834a;--amber:#b76b12}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.7 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,"PingFang SC","Microsoft YaHei",sans-serif}
+a{color:var(--blue);text-decoration:none}.wrap{max-width:1240px;margin:auto;padding:28px 22px;display:grid;grid-template-columns:245px minmax(0,900px);gap:28px}
+aside{position:sticky;top:20px;align-self:start;background:#fff;border:1px solid var(--line);border-radius:15px;padding:20px;max-height:calc(100vh - 40px);overflow:auto}
+.logo{display:flex;align-items:center;gap:10px;font-weight:800}.mark{background:var(--blue);color:white;padding:5px 8px;border-radius:8px}
+nav{display:grid;gap:5px;margin-top:18px}nav a{font-size:13px;color:#475569;padding:6px 8px;border-radius:7px}nav a:hover{background:#eef2ff}
+main{min-width:0}.hero,section{background:white;border:1px solid var(--line);border-radius:16px;padding:28px;margin-bottom:18px}
+.hero{background:linear-gradient(135deg,#fff,#eef3ff)}.eyebrow{font-size:12px;color:var(--blue);font-weight:800;letter-spacing:.1em}
+h1{font-size:clamp(30px,5vw,44px);line-height:1.15;margin:12px 0}h2{font-size:24px;margin:0 0 16px}h3{font-size:18px;margin:22px 0 9px}p{margin:8px 0 13px}.muted,.note{color:var(--muted)}.note{font-size:13px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.badge{font-size:12px;font-weight:700;padding:4px 10px;border-radius:99px;background:#eef2ff;color:var(--blue)}.green{background:#e8f5ed;color:var(--green)}.amber{background:#fff4df;color:var(--amber)}
+.callout{padding:13px 16px;background:#f1f5ff;border-left:4px solid var(--blue);border-radius:0 9px 9px 0;margin:15px 0}.warn{background:#fff8eb;border-color:var(--amber)}.ok{background:#effaf3;border-color:var(--green)}
+table{width:100%;border-collapse:collapse;font-size:14px;margin:12px 0 18px}th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{background:#f8fafc}
+ul,ol{padding-left:22px}li{margin:5px 0}code{font-family:ui-monospace,Consolas,monospace}pre{background:#111827;color:#e5e7eb;padding:16px;border-radius:10px;overflow:auto;font-size:13px;line-height:1.6}
+.flow{max-width:560px;margin:18px auto;display:grid;gap:8px}.step{background:#f0f4ff;border:1px solid #dce5ff;border-radius:10px;text-align:center;padding:13px}.arrow{text-align:center;color:#94a3b8}
+.ui{border:1px solid #dfe5ee;border-radius:14px;overflow:hidden;background:#fff;margin:15px 0;color:#172033}.uihead{padding:14px 18px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center}.uibody{padding:28px 22px}.uibody h3{text-align:center;font-size:25px;margin:0}.sub{text-align:center;color:#64748b;font-size:13px}.drop{border:2px dashed #cbd5e1;border-radius:13px;text-align:center;padding:32px 12px;margin:22px auto;max-width:640px;background:#fbfcff}.btn{display:inline-block;background:var(--blue);color:#fff;border-radius:8px;padding:9px 18px;margin:10px;font-size:13px;font-weight:700}.trust{display:flex;justify-content:center;gap:18px;flex-wrap:wrap;color:#64748b;font-size:11px}.cols{display:grid;grid-template-columns:repeat(3,1fr);gap:15px;margin-top:24px;font-size:13px}.result{padding:20px}.rrow{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #e5e7eb}.rrow:last-child{border:0}.right{margin-left:auto;color:var(--green);font-size:12px}.preview{font-size:12px}.preview th,.preview td{padding:8px}.actions{display:flex;gap:9px;margin-top:14px}.action{border:1px solid var(--blue);border-radius:8px;color:var(--blue);padding:8px 13px;font-size:12px;font-weight:700}.primary{background:var(--blue);color:white}.checklist{list-style:none;padding:0}.checklist li{border-bottom:1px solid var(--line);padding:7px 0}.checklist li:before{content:"□";color:var(--blue);margin-right:10px}
+@media(max-width:850px){.wrap{grid-template-columns:1fr;padding:14px}aside{position:static;max-height:none}nav{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:560px){.wrap{padding:9px}.hero,section{padding:18px}.cols{grid-template-columns:1fr}.uibody{padding:20px 12px}.uihead{padding:12px}table{font-size:12px}th,td{padding:7px}}
+@media print{body{background:white}.wrap{display:block;padding:0}aside{display:none}.hero,section{break-inside:avoid}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<aside>
+ <div class="logo"><span class="mark">PDF</span> PDF Table Extractor</div>
+ <p class="note">项目需求文档 · PRD V1.0</p>
+ <nav>
+  <a href="#overview">1. 项目概述</a><a href="#requirements">2. 核心功能需求</a>
+  <a href="#flow">3. 用户操作流程</a><a href="#tech">4. 技术架构与部署</a>
+  <a href="#ui">5. UI 设计参考</a><a href="#seo">6. 页面与 SEO</a>
+  <a href="#plan">7. 开发排期</a><a href="#test">8. 验收标准</a><a href="#mvp">9. MVP 范围</a>
+ </nav>
+</aside>
+<main>
+<header class="hero">
+ <div class="eyebrow">PRODUCT REQUIREMENTS DOCUMENT · VERSION 1.0</div>
+ <h1>PDF Table Extractor</h1>
+ <p><strong>Upload a PDF. Extract tables. Export to Excel.</strong></p>
+ <p>面向海外用户的轻量级在线 PDF 表格提取工具：上传 PDF，识别并提取表格，预览检查后导出 Excel 或 CSV。</p>
+ <div class="badges"><span class="badge green">建议立项</span><span class="badge">海外市场</span><span class="badge">Next.js + TypeScript</span><span class="badge">Vercel 部署</span></div>
+</header>
+
+<section id="overview">
+<h2>1. 项目概述</h2>
+<h3>1.1 产品定位</h3>
+<p>用户上传 PDF 文件，系统自动识别其中的表格，转换为可编辑的 Excel 或 CSV 文件。</p>
+<p><strong>英文描述：</strong>Extract tables from PDF files and convert them into editable Excel or CSV spreadsheets in seconds.</p>
+<h3>1.2 目标用户</h3>
+<table><tr><th>用户群体</th><th>主要使用场景</th></tr>
+<tr><td>会计、财务人员</td><td>从财务报表、账单中提取数据</td></tr><tr><td>采购人员</td><td>提取供应商报价单、采购清单</td></tr><tr><td>行政人员</td><td>提取 PDF 报告中的表格</td></tr><tr><td>研究人员、学生</td><td>提取论文、研究报告中的数据</td></tr><tr><td>小企业经营者</td><td>从订单、价格表中提取数据</td></tr></table>
+<div class="callout"><strong>首批用户建议：</strong>小企业员工、会计人员、采购人员。优先选择 PDF 转 Excel 需求明确、处理频率较高的场景。</div>
+<h3>1.3 产品目标</h3>
+<ol><li>上传 PDF。</li><li>自动检测 PDF 是否包含表格。</li><li>提取表格内容并展示预览。</li><li>选择需要的表格和页面。</li><li>编辑提取结果。</li><li>导出 Excel 和 CSV。</li><li>无需注册即可体验。</li></ol>
+<h3>1.4 产品边界</h3>
+<p>第一版暂不做 PDF 编辑器、PDF 合并拆分工具集合、在线协作、账户与云端文件管理、批量处理、复杂文档问答和自动财务分析报告。</p>
+<div class="callout warn"><strong>技术范围说明：</strong>数字 PDF 通常可以直接解析文字和位置；扫描版 PDF 需要 OCR，复杂表格还涉及版面识别。建议 V1 先做好数字 PDF，扫描件作为后续升级能力。</div>
+</section>
+
+<section id="requirements">
+<h2>2. 核心功能需求</h2>
+<h3>2.1 首页与文件上传 <span class="badge green">P0 必须开发</span></h3>
+<ul><li>支持拖拽上传 PDF，也支持点击按钮选择文件。</li><li>显示文件名称和大小；支持删除、重新上传。</li><li>校验文件类型；限制文件大小和页数。</li><li>显示上传和处理进度。</li><li>显示隐私说明。</li></ul>
+<table><tr><th>项目</th><th>初始限制建议</th></tr><tr><td>文件格式</td><td>PDF</td></tr><tr><td>单文件大小</td><td>20 MB</td></tr><tr><td>PDF 页数</td><td>50 页</td></tr><tr><td>同时上传数量</td><td>1 个</td></tr><tr><td>用户注册</td><td>不需要</td></tr></table>
+<p class="note">这些是产品初始限制建议，不代表 Vercel 平台硬性限制，后续应按解析性能和真实文件测试调整。</p>
+<h3>2.2 PDF 表格自动识别 <span class="badge green">P0 必须开发</span></h3>
+<p>上传后自动扫描文档，识别表格所在页码、行列数、内容、表头、空白单元格，以及数字、日期和文本。用户可选择全部表格、指定表格或指定页面。</p>
+<table><tr><th>识别结果示意</th><th>页码</th><th>行列</th><th>状态</th></tr><tr><td>Table 1</td><td>Page 2</td><td>12 × 4</td><td>已识别</td></tr><tr><td>Table 2</td><td>Page 4</td><td>18 × 6</td><td>已识别</td></tr><tr><td>Table 3</td><td>Page 7</td><td>8 × 3</td><td>已识别</td></tr></table>
+<h3>2.3 表格预览与编辑 <span class="badge green">P0 必须开发</span></h3>
+<ul><li>表格预览和单元格编辑。</li><li>行列调整，删除空行、空列。</li><li>修改列名、重新提取。</li><li>显示原始页码。</li><li>对数字识别不确定、表头缺失、内容错位或合并单元格不明确的情况显示警告。</li></ul>
+<div class="callout warn">无法确定的内容不允许系统默默修改，应显示警告并让用户检查确认。</div>
+<h3>2.4 Excel 和 CSV 导出 <span class="badge green">P0 必须开发</span></h3>
+<table><tr><th>格式</th><th>要求</th></tr><tr><td>XLSX</td><td>每张表格可导出为独立 Sheet；保留列名、数据顺序，并尽可能保留数字格式。</td></tr><tr><td>CSV</td><td>支持 UTF-8；正确处理逗号、引号和换行；防止 CSV Formula Injection。</td></tr></table>
+<h3>2.5 隐私与文件安全 <span class="badge green">P0 必须开发</span></h3>
+<ul><li>不要求注册；不长期保存用户上传的 PDF。</li><li>不保存提取出的表格内容；临时文件设置自动清理。</li><li>不将 PDF 原文写入应用日志。</li><li>上传接口进行文件类型和大小验证。</li><li>传输过程使用 HTTPS。</li><li>隐私政策说明文件是否会发送给第三方 OCR 或 AI 服务。</li></ul>
+<div class="callout warn">不长期保存不等于文件在处理期间绝对不会落盘。实际存储、清理和第三方处理流程必须与产品隐私声明一致。</div>
+</section>
+
+<section id="flow">
+<h2>3. 用户操作流程</h2>
+<div class="flow"><div class="step"><strong>Step 1 · Upload PDF</strong><br><span class="muted">上传 PDF 文件</span></div><div class="arrow">↓</div>
+<div class="step"><strong>Step 2 · Detect Tables</strong><br><span class="muted">扫描并识别 PDF 表格</span></div><div class="arrow">↓</div>
+<div class="step"><strong>Step 3 · Select Tables</strong><br><span class="muted">选择需要提取的表格</span></div><div class="arrow">↓</div>
+<div class="step"><strong>Step 4 · Preview &amp; Edit</strong><br><span class="muted">预览、检查和编辑数据</span></div><div class="arrow">↓</div>
+<div class="step" style="background:#effaf3;border-color:#cdebd8"><strong>Step 5 · Export Excel / CSV</strong><br><span class="muted">下载处理后的文件</span></div></div>
+</section>
+
+<section id="tech">
+<h2>4. 技术架构与部署方案</h2>
+<h3>4.1 技术选型</h3>
+<table><tr><th>模块</th><th>技术建议</th><th>用途</th></tr>
+<tr><td>前端框架</td><td>Next.js App Router</td><td>页面和服务端逻辑</td></tr><tr><td>开发语言</td><td>TypeScript</td><td>类型安全</td></tr><tr><td>UI 样式</td><td>Tailwind CSS</td><td>页面样式</td></tr><tr><td>UI 组件</td><td>shadcn/ui</td><td>按钮、弹窗、表格等</td></tr><tr><td>图标</td><td>Lucide</td><td>图标</td></tr><tr><td>PDF 解析</td><td>pdfjs-dist</td><td>读取 PDF 文字及位置</td></tr><tr><td>表格识别</td><td>自定义坐标规则</td><td>将文字组织成行列</td></tr><tr><td>Excel 导出</td><td>ExcelJS</td><td>生成 XLSX</td></tr><tr><td>CSV 处理</td><td>Papa Parse</td><td>CSV 数据处理</td></tr><tr><td>参数校验</td><td>Zod</td><td>API 数据校验</td></tr><tr><td>临时文件存储</td><td>Vercel Blob</td><td>临时存储上传文件</td></tr><tr><td>部署</td><td>Vercel</td><td>网站和 API 部署</td></tr></table>
+<div class="callout"><strong>表格识别策略：</strong>先用规则引擎处理文字坐标、间距、边框和表格边界；大模型可作为复杂情况的辅助能力，但不应成为唯一解析引擎。</div>
+<h3>4.2 系统架构</h3>
+<pre><code>User Browser
+   ↓
+Next.js Frontend
+   ↓
+Upload API → Vercel Blob (Temporary Storage)
+                         ↓
+                  Extract API (Node.js)
+                         ↓
+                    PDF.js Parser
+                         ↓
+                 Table Detection Engine
+                         ↓
+                Structured Table JSON
+                         ↓
+                  Preview & Edit
+                         ↓
+                 ExcelJS / CSV Export
+                         ↓
+                    Download File
+
+Temporary File Cleanup → Vercel Blob</code></pre>
+<h3>4.3 处理流程</h3>
+<ol><li>浏览器上传 PDF。</li><li>文件进入临时存储。</li><li>服务端读取 PDF。</li><li>解析文字及其坐标。</li><li>根据坐标、间距、边框等特征识别表格。</li><li>输出统一 JSON。</li><li>前端展示表格。</li><li>用户编辑并导出 Excel/CSV。</li><li>临时文件按设置清理。</li></ol>
+<div class="callout warn"><strong>Vercel 上传注意：</strong>普通 Vercel Function 请求体默认上限为 4.5 MB。建议采用浏览器直传 Vercel Blob 的方案，避免 PDF 文件经过 API 请求体转发。部署前应再次核对当前计划、Blob 上传方式和函数限制。</div>
+<h3>4.4 API 设计</h3>
+<table><tr><th>API</th><th>方法</th><th>作用</th></tr><tr><td><code>/api/upload</code></td><td>POST</td><td>创建临时上传</td></tr><tr><td><code>/api/extract</code></td><td>POST</td><td>提取 PDF 表格</td></tr><tr><td><code>/api/extract/[id]</code></td><td>GET</td><td>获取提取结果</td></tr><tr><td><code>/api/export</code></td><td>POST</td><td>导出 Excel 或 CSV</td></tr><tr><td><code>/api/health</code></td><td>GET</td><td>健康检查</td></tr></table>
+<h3>4.5 提取接口返回示例</h3>
+<pre><code>{
+  "fileName": "financial-report.pdf",
+  "totalPages": 8,
+  "tables": [{
+    "id": "table_1",
+    "page": 2,
+    "rowCount": 12,
+    "columnCount": 4,
+    "headers": ["Date", "Description", "Amount", "Status"],
+    "rows": [
+      ["2026-01-01", "Office supplies", "120.00", "Paid"],
+      ["2026-01-02", "Software", "89.00", "Pending"]
+    ],
+    "warnings": []
+  }]
+}</code></pre>
+<p class="note">这是接口结构示例。实际数据应由 PDF 解析结果生成，不能假定所有 PDF 都有表头。</p>
+<h3>4.6 项目目录结构</h3>
+<pre><code>pdf-table-extractor/
+├── app/
+│   ├── page.tsx
+│   ├── extract/page.tsx
+│   ├── privacy/page.tsx
+│   ├── terms/page.tsx
+│   └── api/
+│       ├── upload/route.ts
+│       ├── extract/route.ts
+│       └── export/route.ts
+├── components/
+│   ├── upload/
+│   ├── pdf-preview/
+│   ├── table-editor/
+│   ├── export/
+│   └── layout/
+├── lib/
+│   ├── pdf/parser.ts
+│   ├── pdf/detector.ts
+│   ├── pdf/coordinates.ts
+│   ├── export/excel.ts
+│   ├── export/csv.ts
+│   └── validation/
+├── types/table.ts
+└── package.json</code></pre>
+<h3>4.7 部署步骤与环境变量</h3>
+<ol><li>GitHub 创建项目仓库。</li><li>本地完成 Next.js 开发。</li><li>推送代码到 GitHub。</li><li>Vercel 导入 GitHub 项目。</li><li>配置环境变量。</li><li>自动构建和部署。</li><li>绑定正式域名。</li></ol>
+<pre><code>BLOB_READ_WRITE_TOKEN=
+MAX_FILE_SIZE_MB=20
+MAX_PDF_PAGES=50</code></pre>
+<p>如后续接入 OCR 或第三方文档解析服务，再增加相应 API Key。所有密钥只能放在服务端环境变量中，不能暴露给浏览器。</p>
+</section>
+
+<section id="ui">
+<h2>5. UI 设计参考</h2>
+<h3>5.1 品牌视觉规范</h3>
+<table><tr><th>项目</th><th>建议</th></tr><tr><td>Primary</td><td><code>#315EE8</code></td></tr><tr><td>Text</td><td><code>#172033</code></td></tr><tr><td>Background</td><td><code>#F7F8FC</code></td></tr><tr><td>Border</td><td><code>#E5E7EB</code></td></tr><tr><td>Success</td><td><code>#16834A</code></td></tr><tr><td>Warning</td><td><code>#B76B12</code></td></tr><tr><td>Font</td><td>Inter</td></tr><tr><td>圆角 / 按钮高度</td><td>8–12px / 44–48px</td></tr></table>
+<h3>5.2 首页 UI 线框参考</h3>
+<div class="ui">
+ <div class="uihead"><strong>▦ PDF Table Extractor</strong><span class="note">How it works　 Privacy</span></div>
+ <div class="uibody"><h3>Extract Tables from PDF to Excel</h3><p class="sub">Convert PDF tables into editable Excel and CSV files in seconds.</p>
+  <div class="drop"><div style="font-size:32px;color:#315EE8">⇧</div><strong>Drag &amp; drop your PDF here</strong><p class="sub">or choose a file from your computer</p><span class="btn">Choose PDF File</span><div class="note">PDF only · Up to 20 MB</div></div>
+  <div class="trust"><span>✓ Secure processing</span><span>▤ Excel &amp; CSV export</span><span>♙ No signup required</span></div>
+  <div class="cols"><div>⇧ <strong>Upload PDF</strong><span class="note">Select your document</span></div><div>⌕ <strong>Extract Tables</strong><span class="note">Detect and preview tables</span></div><div>↓ <strong>Export Data</strong><span class="note">Download Excel or CSV</span></div></div>
+ </div>
+</div>
+<p class="note">首页参考：突出上传入口、支持格式和隐私承诺。此处为 UI 结构示意，不是已连接真实上传功能的网页。</p>
+<h3>5.3 表格提取结果页 UI 线框参考</h3>
+<div class="ui">
+ <div class="uihead"><strong>▦ PDF Table Extractor</strong><span class="badge green">Extraction complete</span></div>
+ <div class="result">
+  <div class="rrow"><span style="font-size:23px">📕</span><div><strong>financial-report.pdf</strong><div class="note">8 pages · 3 tables detected</div></div><span class="right">Change file</span></div>
+  <div class="rrow"><span style="font-size:22px;color:#315EE8">▤</span><div><strong>Table 1</strong><div class="note">Page 2 · 12 rows · 4 columns</div></div><span class="right">Selected</span></div>
+  <h4>Table Preview <span class="note">· Page 2</span></h4>
+  <table class="preview"><tr><th>Date</th><th>Description</th><th>Amount</th></tr><tr><td>2026-01-01</td><td>Office supplies</td><td>$120.00</td></tr><tr><td>2026-01-02</td><td>Software</td><td>$89.00</td></tr><tr><td>2026-01-03</td><td>Marketing</td><td>$250.00</td></tr></table>
+  <p style="font-size:12px;color:#b76b12">⚠ Please review the extracted data before exporting.</p>
+  <div class="actions"><span class="action">Export Excel</span><span class="action primary">Export CSV</span></div>
+ </div>
+</div>
+<p class="note">结果页参考：上方显示文件与识别结果，中间展示表格，底部提供导出操作。实际产品应支持编辑单元格和查看识别警告。</p>
+<h3>5.4 响应式规则</h3>
+<table><tr><th>设备</th><th>建议布局</th></tr><tr><td>Desktop ≥ 1024px</td><td>主内容居中；结果页可采用左侧表格列表、右侧预览。</td></tr><tr><td>Tablet 561–1023px</td><td>单列布局；表格支持横向滚动。</td></tr><tr><td>Mobile ≤ 560px</td><td>上传区和结果区纵向堆叠；优先保证上传、查看和导出。</td></tr></table>
+</section>
+
+<section id="seo">
+<h2>6. 页面结构与 SEO 规划</h2>
+<table><tr><th>页面</th><th>URL</th><th>作用</th></tr><tr><td>首页</td><td><code>/</code></td><td>产品介绍和上传入口</td></tr><tr><td>提取页面</td><td><code>/extract</code></td><td>文件处理和表格预览</td></tr><tr><td>使用教程</td><td><code>/how-it-works</code></td><td>介绍操作步骤</td></tr><tr><td>隐私政策</td><td><code>/privacy</code></td><td>说明文件处理方式</td></tr><tr><td>服务条款</td><td><code>/terms</code></td><td>使用规则</td></tr></table>
+<h3>后续 SEO 专题页候选</h3>
+<ul><li><code>/pdf-to-excel</code></li><li><code>/extract-tables-from-pdf</code></li><li><code>/pdf-to-csv</code></li><li><code>/convert-pdf-table-to-excel</code></li><li><code>/extract-table-from-scanned-pdf</code></li></ul>
+<div class="callout warn">专题页不能只是替换关键词的重复页面，应提供对应的使用说明、示例和真实功能。扫描件页面应在 OCR 功能上线后再作为产品落地页推广。</div>
+</section>
+
+<section id="plan">
+<h2>7. 开发排期</h2>
+<table><tr><th>时间</th><th>开发任务</th><th>交付结果</th></tr><tr><td>Day 1</td><td>Next.js 项目初始化、UI 框架</td><td>首页和基础布局</td></tr><tr><td>Day 2</td><td>PDF 上传、文件校验</td><td>上传功能</td></tr><tr><td>Day 3</td><td>PDF 文字解析</td><td>能读取数字 PDF</td></tr><tr><td>Day 4</td><td>表格识别和结构化</td><td>能识别基本表格</td></tr><tr><td>Day 5</td><td>表格预览、编辑</td><td>结果页面</td></tr><tr><td>Day 6</td><td>Excel、CSV 导出</td><td>完成下载</td></tr><tr><td>Day 7</td><td>测试、隐私页面、Vercel 部署</td><td>MVP 上线</td></tr></table>
+<div class="callout warn">最可能超出预期的是 Day 3–4。PDF 中没有明确表格边框、文字错位、跨页表格等情况，可能需要额外调试。7 天是规划目标，不是工期保证。</div>
+</section>
+
+<section id="test">
+<h2>8. 验收标准</h2>
+<p>上线前至少准备 20 份真实 PDF 测试文件，覆盖简单网格表格、无边框表格、多页表格、多张表格、货币日期小数、空白单元格、加密 PDF 和扫描版 PDF。</p>
+<ul class="checklist"><li>可以上传符合限制的 PDF。</li><li>能正确显示 PDF 页数。</li><li>能识别基本数字 PDF 表格。</li><li>能显示表格页码、行数、列数。</li><li>能选择指定表格。</li><li>能编辑单元格。</li><li>Excel 导出数据与预览一致。</li><li>CSV 导出格式正确。</li><li>异常文件有明确错误提示。</li><li>临时文件能按规定清理。</li><li>移动端可以正常上传和查看。</li><li>Vercel 正式环境部署成功。</li></ul>
+<div class="callout ok"><strong>首轮验收目标建议：</strong>20 份测试 PDF 中，至少 16 份能够正确提取预先选定的基础表格。该目标仅针对支持范围内的数字 PDF，不包含复杂扫描件。</div>
+</section>
+
+<section id="mvp">
+<h2>9. 最终 MVP 范围</h2>
+<div class="cols">
+ <div><h3>V1.0 必须完成</h3><ul><li>数字 PDF 上传</li><li>自动识别基本表格</li><li>表格列表和页码</li><li>预览与单元格编辑</li><li>Excel / CSV 导出</li><li>基础错误处理</li><li>隐私与服务条款</li><li>Vercel 部署</li></ul></div>
+ <div><h3>暂不开发</h3><ul><li>扫描件 OCR</li><li>批量 PDF</li><li>AI 数据分析</li><li>用户历史文件</li><li>订阅系统</li><li>复杂表格结构恢复</li><li>团队协作</li><li>在线 PDF 编辑</li></ul></div>
+ <div><h3>产品核心</h3><p><strong>上传 PDF → 自动识别表格 → 预览编辑 → 导出 Excel / CSV。</strong></p><p>第一版优先保证基础数字 PDF 的提取准确性和导出质量，再逐步增加 OCR、批量处理和付费能力。</p></div>
+</div>
+</section>
+<p class="note" style="text-align:center;padding:16px">PDF Table Extractor · Product Requirements Document · V1.0<br>本文件为产品规划与开发参考；技术限制、第三方服务条款及隐私流程应在正式上线前再次核实。</p>
+</main>
+</div>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "tables": 1,
+  "headers": [
+    "Name",
+    "Department",
+    "Score"
+  ],
+  "rows": 3
+}
