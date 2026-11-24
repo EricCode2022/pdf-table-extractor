@@ -148,8 +148,11 @@ function toSuperscript(s: string): string {
 }
 
 function normalizeMarkup(text: string): string {
+  // Strip PDF control characters used by symbol fonts (e.g. \u0011 for an
+  // overline/binom glyph) — they render as invisible/box glyphs in the UI.
+  let out = text.replace(/[\u0000-\u001F\u007F]/g, '').trim();
   // Fold chained superscripts: 98.87^{±}^{0.00} -> 98.87^{±0.00}
-  let out = text.replace(/\^\{([^{}]*)\}\^\{([^{}]*)\}/g, '^{$1$2}');
+  out = out.replace(/\^\{([^{}]*)\}\^\{([^{}]*)\}/g, '^{$1$2}');
   return out;
 }
 
@@ -246,38 +249,56 @@ function fitTo(arr: string[], n: number): string[] {
 }
 
 /**
- * Correct the parent (topmost) header line using the PDF's text coordinates.
- * LLMs often mis-place multi-level group labels (e.g. putting "Diversity" over
- * 4 columns and dropping "DPG"). The coordinates determine column centres
- * deterministically, so we only overwrite the columns a parent label actually
- * covers, leaving all other cells (e.g. row-spanning Method/Latency) intact.
- * Returns null when the layout cannot be matched confidently.
+ * Rebuild multi-level header rows from the PDF's text coordinates.
+ *
+ * LLMs frequently flatten, merge or mis-align multi-level group headers.
+ * Coordinates are deterministic: we locate the first data row, derive column
+ * centres from it, then map header text (with sub/superscripts reconstructed)
+ * back onto those columns. Group labels spanning several columns are repeated
+ * so the renderer's colSpan logic can merge them; vertically-centred labels
+ * are written into every line they visually span so rowSpan can merge them.
+ *
+ * Returns null unless the data row can be grouped into exactly `colCount`
+ * columns and at least one header label maps successfully (conservative).
  */
-function correctParentHeaderFromCoords(
+function rebuildHeaderRowsFromCoords(
   page: PageData,
-  headerRows: string[][],
   firstDataRow: string[],
   colCount: number
 ): string[][] | null {
-  if (headerRows.length < 2 || colCount < 2) return null;
+  if (colCount < 2) return null;
 
-  const matchText = firstDataRow.find((v) => v.trim())?.trim() ?? '';
-  if (!matchText) return null;
-  const anchor = page.cells.find((c) => c.text.trim() === matchText);
-  if (!anchor) return null;
+  // Locate the data row via the most distinctive cell: among the row's values,
+  // pick one whose text appears fewest times on the page, then take its
+  // topmost occurrence. Superscript labels are split into fragments in the
+  // PDF and won't match, but numeric values usually appear as single items.
+  const matches = firstDataRow
+    .map((v) => v.trim())
+    .filter(Boolean)
+    .map((text) => ({ text, cells: page.cells.filter((c) => c.text.trim() === text) }))
+    .filter((m) => m.cells.length > 0)
+    .sort((a, b) => a.cells.length - b.cells.length);
+  if (!matches.length) return null;
+  const anchor = matches[0].cells.reduce((a, b) => (a.y < b.y ? a : b));
   const dataY = anchor.y;
 
-  const sorted = [...page.cells].filter((c) => c.text.trim()).sort((a, b) => a.y - b.y);
-  const visualRows: (typeof page.cells)[] = [];
-  for (const cell of sorted) {
-    const row = visualRows.find((r) => Math.abs(r[0].y - cell.y) <= 4);
-    if (row) row.push(cell); else visualRows.push([cell]);
-  }
-  const dataRow = visualRows.find((r) => Math.abs(r[0].y - dataY) <= 4);
+  const sorted = [...page.cells].filter((c) => c.text.trim()).sort((a, b) => a.y - b.y || a.x - b.x);
+
+  // Cluster cells into visual rows. Use a tighter tolerance for the data row but
+  // a looser one (8pt) above it so split sub/superscripts stay in the same line.
+  const cluster = (tolerance: number) => {
+    const rows: (typeof page.cells)[] = [];
+    for (const cell of sorted) {
+      const row = rows.find((r) => Math.abs(r[0].y - cell.y) <= tolerance);
+      if (row) row.push(cell); else rows.push([cell]);
+    }
+    return rows;
+  };
+  const dataRow = cluster(4).find((r) => r.some((c) => c === anchor || Math.abs(c.y - dataY) <= 4));
   if (!dataRow) return null;
 
-  // Merge text fragments sharing a column (e.g. "×" + "1.0000") by x-origin
-  // proximity. Distinct columns have their x origins far enough apart.
+  // Derive column centres from the data row: fragments in the same column
+  // (e.g. "×" + "1.0000") have close x origins; distinct columns are farther.
   const dataCells = [...dataRow].sort((a, b) => a.x - b.x);
   const groups: { left: number; right: number; lastX: number }[] = [];
   for (const cell of dataCells) {
@@ -292,57 +313,111 @@ function correctParentHeaderFromCoords(
   if (groups.length !== colCount) return null;
   const centers = groups.map((g) => (g.left + g.right) / 2);
 
-  // Header visual rows within 70pt above the data row. A multi-level header
-  // may have a middle row (e.g. Method/Latency vertically centred) between the
-  // parent group row and the child column row — LLM flattens it into one line.
-  const headerVisual = visualRows.filter((r) => r[0].y < dataY - 4 && dataY - r[0].y < 70);
-  if (!headerVisual.length) return null;
-  const parentCells = [...headerVisual[0]].sort((a, b) => a.x - b.x);
+  // Header visual rows above the data row, using 8pt tolerance for sub/superscripts.
+  const allHeaderRows = cluster(8).filter(
+    (r) => r.every((c) => c.y < dataY - 4) && dataY - r[0].y < 60
+  );
+  if (!allHeaderRows.length) return null;
 
-  const rebuilt = headerRows.map((hr) => [...hr]);
-  const parentLine = [...rebuilt[0]];
-  let changed = false;
-  for (const cell of parentCells) {
-    const text = cell.text.trim();
-    if (!text) continue;
-    const lo = cell.x - 20;
-    const hi = cell.x + cell.width + 20;
+  const rowLines = allHeaderRows.map((vr) => {
+    const rich = reconstructRichText(vr).filter((c) => c.richText.trim());
+    const line = Array.from({ length: colCount }, () => '');
+    let mapped = false;
+    for (const cell of rich) {
+      const text = normalizeMarkup(cell.richText);
+      if (!text) continue;
+      const left = cell.x;
+      const right = cell.x + cell.width;
+      // Columns whose centre falls inside the label's horizontal extent are
+      // covered by it — repeat the text so colSpan can merge them later.
+      const coveredCols: number[] = [];
+      for (let c = 0; c < colCount; c++) {
+        if (centers[c] >= left - 12 && centers[c] <= right + 12) coveredCols.push(c);
+      }
+      if (coveredCols.length) {
+        for (const c of coveredCols) line[c] = text;
+        mapped = true;
+        continue;
+      }
+      // Otherwise snap to the nearest column centre.
+      let nearest = -1;
+      let bestDist = Infinity;
+      for (let c = 0; c < colCount; c++) {
+        const d = Math.abs(centers[c] - (left + (right - left) / 2));
+        if (d < bestDist) { bestDist = d; nearest = c; }
+      }
+      if (nearest >= 0 && bestDist <= 45 && !line[nearest]) {
+        line[nearest] = text;
+        mapped = true;
+      }
+    }
+    return { line, mapped, rich };
+  });
+
+  if (!rowLines.some((r) => r.mapped)) return null;
+
+  const rebuilt = rowLines.map((r) => r.line);
+
+  // Expand parent group labels across the columns they own. A centred label
+  // like "k=2" has a text width far smaller than the 4 columns it spans, so
+  // coordinate extent alone under-covers it. When a header line has several
+  // sparse labels and the line below has many cells, distribute the child
+  // columns evenly among the parent labels, starting after any leading
+  // row-spanning label column (parent empty, child filled in col 0).
+  for (let ri = 0; ri < rebuilt.length - 1; ri++) {
+    const cur = rebuilt[ri];
+    const child = rebuilt[ri + 1];
+    const labels: { text: string; c: number; x: number }[] = [];
     for (let c = 0; c < colCount; c++) {
-      if (centers[c] >= lo && centers[c] <= hi && parentLine[c] !== text) {
-        parentLine[c] = text;
-        changed = true;
+      if (cur[c]) labels.push({ text: cur[c], c, x: centers[c] });
+    }
+    // Collapse consecutive duplicates (already repeated for colSpan) to unique labels.
+    const unique = labels.filter((l, i) => i === 0 || l.text !== labels[i - 1].text);
+    if (unique.length < 2) continue;
+    if (child.filter(Boolean).length <= unique.length) continue;
+
+    // Only the first leading empty-parent/filled-child column is a row-spanning
+    // label column (e.g. "d"); later empty columns belong to the first group.
+    const startCol = !cur[0] && child[0] ? 1 : 0;
+    const available = colCount - startCol;
+    if (available < unique.length * 2) continue;
+
+    const span = Math.floor(available / unique.length);
+    const expected = unique.map((_, i) => ({
+      text: unique[i].text,
+      from: startCol + i * span,
+      to: i === unique.length - 1 ? colCount - 1 : startCol + (i + 1) * span - 1,
+    }));
+    // Only apply when each label's original column lies inside its span (centred
+    // labels map to the middle column, which is inside the span).
+    if (!expected.every((e, i) => unique[i].c >= e.from && unique[i].c <= e.to)) continue;
+
+    const fresh = Array.from({ length: colCount }, () => '');
+    for (const e of expected) for (let c = e.from; c <= e.to; c++) fresh[c] = e.text;
+    // Preserve leading row-spanning label columns and any other columns outside spans.
+    for (let c = 0; c < startCol; c++) fresh[c] = child[c] ? '' : cur[c];
+    for (let c = 0; c < colCount; c++) if (!fresh[c]) fresh[c] = cur[c];
+    rebuilt[ri] = fresh;
+  }
+
+  // A label appearing alone on a single visual row (e.g. Method/Latency) is a
+  // vertically-centred row-spanning label: copy it into adjacent header lines
+  // so rowSpan detection merges it. Detect rows whose mapped cells are a strict
+  // subset of both neighbours' columns.
+  const occupied = (line: string[]) => line.map((v, i) => (v ? i : -1)).filter((i) => i >= 0);
+  for (let ri = 1; ri < rebuilt.length - 1; ri++) {
+    const cur = occupied(rebuilt[ri]);
+    const prev = occupied(rebuilt[ri - 1]);
+    const next = occupied(rebuilt[ri + 1]);
+    const isSubset = (a: number[], b: number[]) => a.length > 0 && a.length < b.length && a.every((c) => b.includes(c));
+    if (isSubset(cur, prev) && isSubset(cur, next)) {
+      for (const c of cur) {
+        rebuilt[ri - 1][c] = rebuilt[ri][c];
+        rebuilt[ri + 1][c] = rebuilt[ri][c];
       }
     }
   }
-  rebuilt[0] = parentLine;
 
-  // Middle visual rows hold labels that span the parent and child header lines
-  // (e.g. Method/Latency). Write them into BOTH lines so the renderer's rowSpan
-  // detection merges them into a single vertically-centred cell, as in the PDF.
-  if (headerRows.length >= 2 && headerVisual.length > 2) {
-    for (let vr = 1; vr < headerVisual.length - 1; vr++) {
-      for (const cell of headerVisual[vr]) {
-        const text = cell.text.trim();
-        if (!text) continue;
-        const cx = cell.x + cell.width / 2;
-        let nearest = -1;
-        let bestDist = Infinity;
-        for (let c = 0; c < colCount; c++) {
-          const d = Math.abs(centers[c] - cx);
-          if (d < bestDist) { bestDist = d; nearest = c; }
-        }
-        if (nearest < 0 || bestDist > 60) continue;
-        for (const lineIndex of [0, 1]) {
-          if (rebuilt[lineIndex][nearest] !== text) {
-            rebuilt[lineIndex][nearest] = text;
-            changed = true;
-          }
-        }
-      }
-    }
-  }
-
-  if (!changed) return null;
   return rebuilt;
 }
 
@@ -380,15 +455,15 @@ export async function extractPageWithLlm(
 
       let headerRows = n.headerRows ?? [];
       let headers = n.headers;
-      const corrected = correctParentHeaderFromCoords(page, headerRows, n.rows[0] ?? [], columnCount);
-      if (corrected) {
-        headerRows = corrected;
+      const rebuilt = rebuildHeaderRowsFromCoords(page, n.rows[0] ?? [], columnCount);
+      if (rebuilt && rebuilt.some((hr) => hr.some((v) => v.trim()))) {
+        headerRows = rebuilt;
         headers = Array.from({ length: columnCount }, (_, c) => {
           const parts = headerRows.map((hr) => hr[c]?.trim() ?? '').filter(Boolean);
           const dedup = parts.filter((p, idx) => idx === 0 || p !== parts[idx - 1]);
           return dedup.join('/');
         });
-        warnings.push('Group headers corrected from PDF text coordinates; please verify');
+        warnings.push('Group headers rebuilt from PDF text coordinates; please verify');
       }
 
       return {
