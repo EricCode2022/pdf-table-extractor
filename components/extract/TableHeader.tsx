@@ -3,8 +3,9 @@ import { RichCell } from './RichCell';
 
 type HeaderLine = { plain: string[]; rich?: string[] };
 
-// Renders multi-level table headers. Adjacent identical cells in a header row are
-// merged with colSpan (the LLM repeats parent text across the columns it spans).
+// Renders multi-level table headers. The LLM repeats parent text across the columns
+// (horizontal) and rows (vertical) it spans; we merge identical neighbouring cells
+// with colSpan / rowSpan so the result matches the original layout.
 export function TableHeader({
   headerRows,
   headers,
@@ -39,8 +40,25 @@ export function TableHeader({
   }
 
   const lines: HeaderLine[] = headerRows && headerRows.length > 0
-    ? headerRows.map((hr, i) => ({ plain: hr, rich: undefined }))
+    ? headerRows.map((hr) => ({ plain: hr, rich: undefined }))
     : [{ plain: headers, rich: headersRich }];
+
+  const textAt = (ri: number, c: number) => (lines[ri]?.plain[c] ?? '').trim();
+
+  // A cell equal to the one directly above it is covered by that cell's rowSpan.
+  const covered: boolean[][] = lines.map(() => Array.from({ length: columnCount }, () => false));
+  for (let ri = 1; ri < lines.length; ri++) {
+    for (let c = 0; c < columnCount; c++) {
+      const current = textAt(ri, c);
+      if (current && current === textAt(ri - 1, c)) covered[ri][c] = true;
+    }
+  }
+
+  const rowSpanAt = (ri: number, c: number): number => {
+    let span = 1;
+    for (let r = ri + 1; r < lines.length && covered[r][c]; r++) span++;
+    return span;
+  };
 
   return (
     <>
@@ -48,13 +66,23 @@ export function TableHeader({
         const cells: React.ReactNode[] = [];
         let c = 0;
         while (c < columnCount) {
-          const text = line.plain[c] ?? '';
-          let span = 1;
-          while (c + span < columnCount && (line.plain[c + span] ?? '') === text && text.trim() !== '') span++;
+          if (covered[ri][c]) { c++; continue; }
+          const text = textAt(ri, c);
+          const rowSpan = rowSpanAt(ri, c);
+          let colSpan = 1;
+          while (
+            c + colSpan < columnCount &&
+            !covered[ri][c + colSpan] &&
+            textAt(ri, c + colSpan) === text &&
+            rowSpanAt(ri, c + colSpan) === rowSpan &&
+            text !== ''
+          ) colSpan++;
+
           cells.push(
             <th
               key={`${ri}-${c}`}
-              colSpan={span}
+              colSpan={colSpan}
+              rowSpan={rowSpan}
               className={`border-b border-line text-left px-3 py-2.5 font-normal whitespace-nowrap ${
                 ri === lines.length - 1 ? 'bg-slate-50' : 'bg-white'
               }`}
@@ -62,9 +90,9 @@ export function TableHeader({
               {text ? <RichCell text={line.rich?.[c] ?? text} /> : ''}
             </th>
           );
-          c += span;
+          c += colSpan;
         }
-        return <tr key={ri}>{cells}</tr>;
+        return cells.length ? <tr key={ri}>{cells}</tr> : null;
       })}
     </>
   );
