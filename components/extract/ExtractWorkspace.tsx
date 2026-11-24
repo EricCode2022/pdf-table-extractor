@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Header } from '@/components/layout/Header';
+import { RichCell } from './RichCell';
 import {
   CheckCircle2, Table2, LockKeyhole, FileText, RefreshCw, Pencil,
   Download, ChevronDown, ShieldCheck, AlertTriangle, Sparkles, Loader2, ArrowRight,
@@ -264,7 +265,7 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
                                     onChange={(e) => setDraft((prev) => prev ? { ...prev, headers: prev.headers.map((v, i) => i === c ? e.target.value : v) } : prev)}
                                     className="w-full border border-line rounded px-1 py-0.5 bg-white"
                                   />
-                                ) : h || `Column ${c + 1}`}
+                                ) : h ? <RichCell text={active.headersRich?.[c] ?? h} /> : `Column ${c + 1}`}
                               </th>
                             ))}
                           </tr>
@@ -280,7 +281,7 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
                                       onChange={(e) => updateCell(r, c, e.target.value)}
                                       className="w-full border border-transparent hover:border-line focus:border-primary rounded px-1 py-0.5"
                                     />
-                                  ) : cell}
+                                  ) : cell ? <RichCell text={active.rowsRich?.[r]?.[c] ?? cell} /> : ''}
                                 </td>
                               ))}
                             </tr>

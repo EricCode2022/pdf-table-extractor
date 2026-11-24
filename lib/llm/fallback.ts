@@ -145,12 +145,16 @@ function toSuperscript(s: string): string {
   return s;
 }
 
-function cleanCellText(text: string): string {
+function normalizeMarkup(text: string): string {
   // Fold chained superscripts: 98.87^{±}^{0.00} -> 98.87^{±0.00}
   let out = text.replace(/\^\{([^{}]*)\}\^\{([^{}]*)\}/g, '^{$1$2}');
-  // Subscripts: μ_{max} -> μmax (inline, matching the visual label)
+  return out;
+}
+
+// Convert markup to plain text for export/copy (preserves readability).
+function toPlainText(text: string): string {
+  let out = normalizeMarkup(text);
   out = out.replace(/_\{([^{}]{1,12})\}/g, '$1');
-  // Superscripts: ^{2} -> ², ^{-1} -> ⁻¹, ^{∘} -> °; otherwise drop braces
   out = out.replace(/\^\{([^{}]{1,12})\}/g, (_, s: string) => toSuperscript(s));
   return out;
 }
@@ -166,8 +170,8 @@ function normalizeTable(t: z.infer<typeof LLM_TABLE>): {
   columnCount: number;
   mergedColumns: number[];
 } {
-  let headers = t.headers.map(cleanCellText).map((h) => (/^column\s+\d+$/i.test(h.trim()) ? '' : h));
-  let rows = t.rows.map((row) => row.map(cleanCellText));
+  let headers = t.headers.map(normalizeMarkup).map((h) => (/^column\s+\d+$/i.test(h.trim()) ? '' : h));
+  let rows = t.rows.map((row) => row.map(normalizeMarkup));
 
   rows = rows.map(trimTrailingEmpty);
   headers = trimTrailingEmpty(headers);
@@ -257,8 +261,10 @@ export async function extractPageWithLlm(
         page: page.pageNumber,
         rowCount: n.rows.length,
         columnCount,
-        headers: n.headers,
-        rows: n.rows,
+        headers: n.headers.map(toPlainText),
+        rows: n.rows.map((row) => row.map(toPlainText)),
+        headersRich: n.headers,
+        rowsRich: n.rows,
         confidence: n.confidence,
         source: 'llm' as const,
         warnings,

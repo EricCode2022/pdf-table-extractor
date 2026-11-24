@@ -9,6 +9,8 @@ export const TableSchema = z.object({
   columnCount: z.number().int().nonnegative(),
   headers: z.array(z.string()),
   rows: z.array(z.array(z.string())),
+  headersRich: z.array(z.string()).optional(),
+  rowsRich: z.array(z.array(z.string())).optional(),
   confidence: z.number().min(0).max(1),
   source: z.enum(['rules', 'llm', 'hybrid']),
   warnings: z.array(z.string()),
