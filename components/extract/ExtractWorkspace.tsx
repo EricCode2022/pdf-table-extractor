@@ -201,8 +201,8 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
             </div>
           ) : (
             <>
-              <div className="grid md:grid-cols-[240px_1fr] gap-6 py-5">
-                <div>
+              <div className="grid md:grid-cols-[240px_minmax(0,1fr)] gap-6 py-5">
+                <div className="min-w-0">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-[14px]">Detected Tables</h3>
                     <span className="text-[11px] text-muted">{tables.length} tables found</span>
@@ -246,14 +246,14 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
                   </div>
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-[14px]">Table Preview</h3>
                     {active && <span className="text-[11px] text-muted">Page {active.page}</span>}
                   </div>
                   {active ? (
-                    <div className="overflow-x-auto border border-line rounded-lg">
-                      <table className="w-full text-[12px] border-collapse">
+                    <div className="overflow-x-auto border border-line rounded-lg max-w-full">
+                      <table className="min-w-full w-max text-[12px] border-collapse">
                         <thead>
                           <tr className="bg-slate-50">
                             {(editing ? draft!.headers : active.headers).map((h, c) => (
