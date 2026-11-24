@@ -275,14 +275,20 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
                             <tr key={r} className="border-b border-line last:border-0">
                               {row.map((cell, c) => {
                                 if (!editing && c === 0 && cell && !/^[\d.,%+\-]+$/.test(cell)) {
+                                  // A cell is covered when any row above (in the
+                                  // same run of equal values) already started the
+                                  // rowSpan — not only the immediately previous row.
+                                  let coveredAbove = false;
+                                  for (let i = r - 1; i >= 0 && active.rows[i][0] === cell; i--) {
+                                    coveredAbove = true;
+                                  }
+                                  if (coveredAbove) return null;
                                   let span = 1;
                                   while (
                                     r + span < active.rows.length &&
                                     active.rows[r + span][0] === cell
                                   ) span++;
                                   if (span > 1) {
-                                    // Skip rows covered by this rowSpan.
-                                    if (r > 0 && active.rows[r - 1][0] === cell) return null;
                                     return (
                                       <td key={c} rowSpan={span} className="px-3 py-2 whitespace-nowrap text-center align-middle">
                                         <RichCell text={active.rowsRich?.[r]?.[c] ?? cell} />
