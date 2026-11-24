@@ -226,7 +226,11 @@ row1: LPIPS[r1c1] | CLIP[r1c1] | Overall[r1c1] | Overall[r1c1]
 - `normalizeMarkup` 反复折叠链式上标：`ε^{−2}^{k/}^{(2σ}^{+k}^{)}` → `ε^{−2k/(2σ+k)}`
 - 双行同单元格表头（两行全满、无 rowSpan 关系）：非 colSpan 列拼接两行文字并填入两行触发 rowSpan，如 `colliding`+`nuclei` → `colliding nuclei`（跨 2 行）、`√sNN`+`TeV` → `√sNN TeV`（跨 2 行）
 
-005 两张表现在：colliding 表列头与原图一致；k=2/k=3 表列为 `d | β | d2 | logd2 | ε−2k/(2σ+k) | β | d3 | logd3 | ε−2k/(2σ+k)`，父行 k=2/k=3 各跨 4 列，数据列完全对应。残余偏差：二项式 `\binom{d}{2}` 以 `d2` 表示（非标准数学排版），需专用版面模型才能精确还原。
+005 两张表现在：colliding 表列头与原图一致；k=2/k=3 表父行 k=2/k=3 各跨 4 列，数据列完全对应。数学表达式严格还原：
+- 相邻字母+数字碎片识别为 `\binom{d}{2}` / `\binom{d}{3}` 二项式 markup，`log` + 二项式拼成 `log\binom{d}{2}`
+- `RichCell` 扩展支持 `\binom{a}{b}`：渲染为圆括号内 a 上 b 下的上下排列，贴近原图
+- `ε^{−2k/(2σ+k)}` 的链式上标合并为单个 `<sup>`，通过 `headerRowsRich` 传入 `TableHeader`（此前多行表头丢弃了 rich，导致显示为纯文本）
+- 导出/复制时 `toPlainText` 把 `\binom{a}{b}` 转成 `C(a,b)` 可读形式，Excel 导出不受 markup 影响
 
 全量真实样本回归 78.1%（在 77–80% 的正常 LLM 波动范围内），无退化。
 

@@ -1,6 +1,6 @@
 import React from 'react';
 
-type Segment = { text: string; kind: 'text' | 'sub' | 'sup' };
+type Segment = { text: string; kind: 'text' | 'sub' | 'sup' | 'binom' };
 
 function parseMarkup(text: string): Segment[] {
   const segments: Segment[] = [];
@@ -8,10 +8,24 @@ function parseMarkup(text: string): Segment[] {
   let i = 0;
 
   while (i < text.length) {
+    const isBinom = text.startsWith('\\binom{', i);
     const isSub = text.startsWith('_{', i);
     const isSup = text.startsWith('^{', i);
-    if (!isSub && !isSup) {
+    if (!isBinom && !isSub && !isSup) {
       plain += text[i++];
+      continue;
+    }
+
+    if (isBinom) {
+      const topStart = i + '\\binom{'.length;
+      const topEnd = text.indexOf('}', topStart);
+      const bottomStart = topEnd < 0 ? -1 : topEnd + 1;
+      if (text[bottomStart] !== '{') { plain += text[i++]; continue; }
+      const bottomEnd = text.indexOf('}', bottomStart + 1);
+      if (bottomEnd < 0) { plain += text[i++]; continue; }
+      if (plain) { segments.push({ text: plain, kind: 'text' }); plain = ''; }
+      segments.push({ text: text.slice(topStart, topEnd) + '|' + text.slice(bottomStart + 1, bottomEnd), kind: 'binom' });
+      i = bottomEnd + 1;
       continue;
     }
 
@@ -51,6 +65,19 @@ export function RichCell({ text }: { text: string }) {
 
   const renderSegment = (seg: Segment, key: string): React.ReactNode => {
     if (seg.kind === 'text') return seg.text;
+    if (seg.kind === 'binom') {
+      const [top, bottom] = seg.text.split('|');
+      return (
+        <span key={key} className="inline-flex items-center align-middle mx-0.5 font-normal">
+          <span className="text-[1.4em] leading-none text-current/60">(</span>
+          <span className="inline-flex flex-col items-center justify-center -mx-0.5">
+            <span className="text-[0.72em] leading-tight px-0.5">{top}</span>
+            <span className="text-[0.72em] leading-tight px-0.5 border-t border-current w-full text-center">{bottom}</span>
+          </span>
+          <span className="text-[1.4em] leading-none text-current/60">)</span>
+        </span>
+      );
+    }
     if (seg.kind === 'sub') return <sub key={key} className="text-[0.75em]">{renderInner(seg, 0)}</sub>;
     return <sup key={key} className="text-[0.75em]">{renderInner(seg, 0)}</sup>;
   };

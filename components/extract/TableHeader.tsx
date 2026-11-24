@@ -8,6 +8,7 @@ type HeaderLine = { plain: string[]; rich?: string[] };
 // with colSpan / rowSpan so the result matches the original layout.
 export function TableHeader({
   headerRows,
+  headerRowsRich,
   headers,
   headersRich,
   columnCount,
@@ -16,6 +17,7 @@ export function TableHeader({
   onEdit,
 }: {
   headerRows?: string[][];
+  headerRowsRich?: string[][];
   headers: string[];
   headersRich?: string[];
   columnCount: number;
@@ -40,7 +42,7 @@ export function TableHeader({
   }
 
   const lines: HeaderLine[] = headerRows && headerRows.length > 0
-    ? headerRows.map((hr) => ({ plain: hr, rich: undefined }))
+    ? headerRows.map((hr, ri) => ({ plain: hr, rich: headerRowsRich?.[ri] }))
     : [{ plain: headers, rich: headersRich }];
 
   const textAt = (ri: number, c: number) => (lines[ri]?.plain[c] ?? '').trim();

@@ -259,6 +259,7 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
                         <thead>
                           <TableHeader
                             headerRows={active.headerRows}
+                            headerRowsRich={active.headerRowsRich}
                             headers={active.headers}
                             headersRich={active.headersRich}
                             columnCount={active.columnCount}

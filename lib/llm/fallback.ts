@@ -164,7 +164,7 @@ function normalizeMarkup(text: string): string {
 // Convert markup to plain text for export/copy (preserves readability).
 // Repeatedly strips innermost _{}/^{} pairs so nested markup like m_{DO_{2}} works.
 function toPlainText(text: string): string {
-  let out = normalizeMarkup(text);
+  let out = normalizeMarkup(text).replace(/\\binom\{([^{}]*)\}\{([^{}]*)\}/g, 'C($1,$2)');
   let prev: string;
   do {
     prev = out;
@@ -333,7 +333,13 @@ function rebuildHeaderRowsFromCoords(
     for (const cell of [...rich].sort((a, b) => a.x - b.x || a.y - b.y)) {
       const last = fused[fused.length - 1];
       if (last && cell.x - (last.x + last.width) <= 4 && Math.abs(cell.y - last.y) <= 10) {
-        last.richText += cell.richText;
+        // A single letter followed by a small digit is a binomial coefficient
+        // (d over 2). Preserve it as \binom markup for rich rendering.
+        if (/^[A-Za-z]$/.test(last.richText) && /^\d$/.test(cell.richText)) {
+          last.richText = `\\binom{${last.richText}}{${cell.richText}}`;
+        } else {
+          last.richText += cell.richText;
+        }
         last.width = cell.x + cell.width - last.x;
         last.y = Math.min(last.y, cell.y);
       } else {
