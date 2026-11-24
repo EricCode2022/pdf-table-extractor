@@ -60,7 +60,25 @@ export async function buildExcel(tables: TableData[]): Promise<Buffer> {
     } else if (table.headers.some((h) => h.trim() !== '')) {
       sheet.addRow(table.headers);
     }
+    const headerLineCount = headerRows?.length ?? (table.headers.some((h) => h.trim() !== '') ? 1 : 0);
     for (const row of table.rows) sheet.addRow(row);
+    // Merge vertically repeated first-column text labels (multirow cells).
+    if (table.rows.length > 1) {
+      let start = 0;
+      while (start < table.rows.length) {
+        const value = table.rows[start][0] ?? '';
+        if (!value || /^[\d.,%+\-]+$/.test(value)) { start++; continue; }
+        let end = start + 1;
+        while (end < table.rows.length && (table.rows[end][0] ?? '') === value) end++;
+        if (end - start > 1) {
+          const top = headerLineCount + start + 1;
+          const bottom = headerLineCount + end;
+          sheet.mergeCells(top, 1, bottom, 1);
+          sheet.getCell(top, 1).alignment = { horizontal: 'center', vertical: 'middle' };
+        }
+        start = end;
+      }
+    }
 
     sheet.columns.forEach((column) => {
       let max = 10;

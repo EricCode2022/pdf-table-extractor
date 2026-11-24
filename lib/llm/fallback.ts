@@ -467,6 +467,43 @@ function rebuildHeaderRowsFromCoords(
   return rebuilt;
 }
 
+/**
+ * Restore vertically-merged data cells (multirow). In PDFs the label of a
+ * multirow cell is vertically centred, so the LLM leaves some column-0 cells
+ * empty and puts the label on the group's middle row. We split the data rows
+ * at the midpoints between the label positions (row indices) and repeat each
+ * label across its group so the renderer's rowSpan merges it.
+ */
+function restoreMergedDataCells(
+  rows: string[][],
+  colCount: number
+): string[][] | null {
+  if (rows.length < 3 || colCount < 2) return null;
+
+  // Positions (row indices) of non-empty, distinct labels in column 0.
+  const marks: { text: string; idx: number }[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const text = rows[i][0]?.trim() ?? '';
+    if (!text) continue;
+    const last = marks[marks.length - 1];
+    if (last && last.text === text) continue; // already part of a filled group
+    marks.push({ text, idx: i });
+  }
+  if (marks.length < 2) return null;
+  // Only restore when there are genuinely empty cells to fill (merged groups).
+  const emptyCount = rows.filter((r) => !r[0]?.trim()).length;
+  if (emptyCount < marks.length - 1) return null;
+
+  const boundaries = marks.slice(1).map((m, i) => (marks[i].idx + m.idx) / 2);
+  const restored = rows.map((row) => [...row]);
+  for (let ri = 0; ri < rows.length; ri++) {
+    let gi = 0;
+    while (gi < boundaries.length && ri >= boundaries[gi]) gi++;
+    restored[ri][0] = marks[gi].text;
+  }
+  return restored;
+}
+
 export async function extractPageWithLlm(
   page: PageData,
   ruleTables: TableData[],
@@ -499,9 +536,16 @@ export async function extractPageWithLlm(
         );
       }
 
+      let rows = n.rows;
+      const restoredRows = restoreMergedDataCells(rows, columnCount);
+      if (restoredRows) {
+        rows = restoredRows;
+        warnings.push('Merged data cells restored from PDF text coordinates; please verify');
+      }
+
       let headerRows = n.headerRows ?? [];
       let headers = n.headers;
-      const rebuilt = rebuildHeaderRowsFromCoords(page, n.rows[0] ?? [], columnCount);
+      const rebuilt = rebuildHeaderRowsFromCoords(page, rows[0] ?? [], columnCount);
       if (rebuilt && rebuilt.some((hr) => hr.some((v) => v.trim()))) {
         headerRows = rebuilt;
         headers = Array.from({ length: columnCount }, (_, c) => {
@@ -515,12 +559,12 @@ export async function extractPageWithLlm(
       return {
         id: `table_llm_${page.pageNumber}_${i + 1}`,
         page: page.pageNumber,
-        rowCount: n.rows.length,
+        rowCount: rows.length,
         columnCount,
         headers: headers.map(toPlainText),
-        rows: n.rows.map((row) => row.map(toPlainText)),
+        rows: rows.map((row) => row.map(toPlainText)),
         headersRich: headers,
-        rowsRich: n.rows,
+        rowsRich: rows,
         headerRows: headerRows.map((hr) => hr.map(toPlainText)),
         headerRowsRich: headerRows,
         confidence: n.confidence,

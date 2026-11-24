@@ -232,7 +232,9 @@ row1: LPIPS[r1c1] | CLIP[r1c1] | Overall[r1c1] | Overall[r1c1]
 - `ε^{−2k/(2σ+k)}` 的链式上标合并为单个 `<sup>`，通过 `headerRowsRich` 传入 `TableHeader`（此前多行表头丢弃了 rich，导致显示为纯文本）
 - 导出/复制时 `toPlainText` 把 `\binom{a}{b}` 转成 `C(a,b)` 可读形式，Excel 导出不受 markup 影响
 
-全量真实样本回归 78.1%（在 77–80% 的正常 LLM 波动范围内），无退化。
+**数据单元格垂直合并**（`restoreMergedDataCells` + 预览/Excel）：LLM 常把多行的合并单元格（如 Dataset 列的 ETTh2/Consumption/NI 各跨 3 行）的值放错行或留空。按首列非空标签在 rows 中的索引，用相邻标签中点划分组（平局归右，处理居中/末行标签），把标签填充到组内每行；预览页对首列文本连续相同行用 `rowSpan` 合并居中，Excel 导出同步 `mergeCells`。006 的 Dataset 表还原为 ETTh2×3/Consumption×3/NI×3，GPT2 表的 XL 跨 2 行也正确。
+
+全量真实样本回归 77.9%（在 77–80% 的正常 LLM 波动范围内），无退化。
 
 生产构建 `npx next build` 通过，12 个路由全部生成。
 

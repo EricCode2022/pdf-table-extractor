@@ -273,17 +273,35 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
                         <tbody>
                           {(editing ? draft!.rows : active.rows).map((row, r) => (
                             <tr key={r} className="border-b border-line last:border-0">
-                              {row.map((cell, c) => (
-                                <td key={c} className="px-3 py-2 whitespace-nowrap">
-                                  {editing ? (
-                                    <input
-                                      value={cell}
-                                      onChange={(e) => updateCell(r, c, e.target.value)}
-                                      className="w-full border border-transparent hover:border-line focus:border-primary rounded px-1 py-0.5"
-                                    />
-                                  ) : cell ? <RichCell text={active.rowsRich?.[r]?.[c] ?? cell} /> : ''}
-                                </td>
-                              ))}
+                              {row.map((cell, c) => {
+                                if (!editing && c === 0 && cell && !/^[\d.,%+\-]+$/.test(cell)) {
+                                  let span = 1;
+                                  while (
+                                    r + span < active.rows.length &&
+                                    active.rows[r + span][0] === cell
+                                  ) span++;
+                                  if (span > 1) {
+                                    // Skip rows covered by this rowSpan.
+                                    if (r > 0 && active.rows[r - 1][0] === cell) return null;
+                                    return (
+                                      <td key={c} rowSpan={span} className="px-3 py-2 whitespace-nowrap text-center align-middle">
+                                        <RichCell text={active.rowsRich?.[r]?.[c] ?? cell} />
+                                      </td>
+                                    );
+                                  }
+                                }
+                                return (
+                                  <td key={c} className="px-3 py-2 whitespace-nowrap">
+                                    {editing ? (
+                                      <input
+                                        value={cell}
+                                        onChange={(e) => updateCell(r, c, e.target.value)}
+                                        className="w-full border border-transparent hover:border-line focus:border-primary rounded px-1 py-0.5"
+                                      />
+                                    ) : cell ? <RichCell text={active.rowsRich?.[r]?.[c] ?? cell} /> : ''}
+                                  </td>
+                                );
+                              })}
                             </tr>
                           ))}
                         </tbody>
