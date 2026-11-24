@@ -87,9 +87,9 @@ export function TableHeader({
               key={`${ri}-${c}`}
               colSpan={colSpan}
               rowSpan={rowSpan}
-              className={`border-b border-line text-left px-3 py-2.5 font-normal whitespace-nowrap ${
-                ri === lines.length - 1 ? 'bg-slate-50' : 'bg-white'
-              }`}
+              className={`border-b border-line px-3 py-2.5 font-normal whitespace-nowrap ${
+                colSpan > 1 || rowSpan > 1 ? 'text-center' : 'text-left'
+              } ${ri === lines.length - 1 ? 'bg-slate-50' : 'bg-white'}`}
             >
               {text ? <RichCell text={line.rich?.[c] ?? text} /> : ''}
             </th>

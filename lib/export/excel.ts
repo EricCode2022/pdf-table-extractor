@@ -50,7 +50,10 @@ export async function buildExcel(tables: TableData[]): Promise<Buffer> {
             // under different parent groups must remain separate.
             (ri === 0 || (textAt(ri - 1, c) !== '' && textAt(ri - 1, c) === textAt(ri - 1, c + colSpan)))
           ) colSpan++;
-          if (rowSpan > 1 || colSpan > 1) sheet.mergeCells(ri + 1, c + 1, ri + rowSpan, c + colSpan);
+          if (rowSpan > 1 || colSpan > 1) {
+            sheet.mergeCells(ri + 1, c + 1, ri + rowSpan, c + colSpan);
+            sheet.getCell(ri + 1, c + 1).alignment = { horizontal: 'center', vertical: 'middle' };
+          }
           c += colSpan;
         }
       });
