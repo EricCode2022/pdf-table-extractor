@@ -245,6 +245,78 @@ function fitTo(arr: string[], n: number): string[] {
   return a;
 }
 
+/**
+ * Correct the parent (topmost) header line using the PDF's text coordinates.
+ * LLMs often mis-place multi-level group labels (e.g. putting "Diversity" over
+ * 4 columns and dropping "DPG"). The coordinates determine column centres
+ * deterministically, so we only overwrite the columns a parent label actually
+ * covers, leaving all other cells (e.g. row-spanning Method/Latency) intact.
+ * Returns null when the layout cannot be matched confidently.
+ */
+function correctParentHeaderFromCoords(
+  page: PageData,
+  headerRows: string[][],
+  firstDataRow: string[],
+  colCount: number
+): string[][] | null {
+  if (headerRows.length < 2 || colCount < 2) return null;
+
+  const matchText = firstDataRow.find((v) => v.trim())?.trim() ?? '';
+  if (!matchText) return null;
+  const anchor = page.cells.find((c) => c.text.trim() === matchText);
+  if (!anchor) return null;
+  const dataY = anchor.y;
+
+  const sorted = [...page.cells].filter((c) => c.text.trim()).sort((a, b) => a.y - b.y);
+  const visualRows: (typeof page.cells)[] = [];
+  for (const cell of sorted) {
+    const row = visualRows.find((r) => Math.abs(r[0].y - cell.y) <= 4);
+    if (row) row.push(cell); else visualRows.push([cell]);
+  }
+  const dataRow = visualRows.find((r) => Math.abs(r[0].y - dataY) <= 4);
+  if (!dataRow) return null;
+
+  // Merge text fragments sharing a column (e.g. "×" + "1.0000") by x-origin
+  // proximity. Distinct columns have their x origins far enough apart.
+  const dataCells = [...dataRow].sort((a, b) => a.x - b.x);
+  const groups: { left: number; right: number; lastX: number }[] = [];
+  for (const cell of dataCells) {
+    const last = groups[groups.length - 1];
+    if (last && cell.x - last.lastX <= 15) {
+      last.right = Math.max(last.right, cell.x + cell.width);
+      last.lastX = cell.x;
+    } else {
+      groups.push({ left: cell.x, right: cell.x + cell.width, lastX: cell.x });
+    }
+  }
+  if (groups.length !== colCount) return null;
+  const centers = groups.map((g) => (g.left + g.right) / 2);
+
+  // Parent header line = the topmost visual row within 70pt above the data row.
+  const headerVisual = visualRows.filter((r) => r[0].y < dataY - 4 && dataY - r[0].y < 70);
+  if (!headerVisual.length) return null;
+  const parentCells = [...headerVisual[0]].sort((a, b) => a.x - b.x);
+
+  const rebuilt = headerRows.map((hr) => [...hr]);
+  const parentLine = [...rebuilt[0]];
+  let changed = false;
+  for (const cell of parentCells) {
+    const text = cell.text.trim();
+    if (!text) continue;
+    const lo = cell.x - 20;
+    const hi = cell.x + cell.width + 20;
+    for (let c = 0; c < colCount; c++) {
+      if (centers[c] >= lo && centers[c] <= hi && parentLine[c] !== text) {
+        parentLine[c] = text;
+        changed = true;
+      }
+    }
+  }
+  if (!changed) return null;
+  rebuilt[0] = parentLine;
+  return rebuilt;
+}
+
 export async function extractPageWithLlm(
   page: PageData,
   ruleTables: TableData[],
@@ -276,17 +348,31 @@ export async function extractPageWithLlm(
           `Merged cells filled down in column ${mergedColumns.map((c) => c + 1).join(', ')}; please verify`
         );
       }
+
+      let headerRows = n.headerRows ?? [];
+      let headers = n.headers;
+      const corrected = correctParentHeaderFromCoords(page, headerRows, n.rows[0] ?? [], columnCount);
+      if (corrected) {
+        headerRows = corrected;
+        headers = Array.from({ length: columnCount }, (_, c) => {
+          const parts = headerRows.map((hr) => hr[c]?.trim() ?? '').filter(Boolean);
+          const dedup = parts.filter((p, idx) => idx === 0 || p !== parts[idx - 1]);
+          return dedup.join('/');
+        });
+        warnings.push('Group headers corrected from PDF text coordinates; please verify');
+      }
+
       return {
         id: `table_llm_${page.pageNumber}_${i + 1}`,
         page: page.pageNumber,
         rowCount: n.rows.length,
         columnCount,
-        headers: n.headers.map(toPlainText),
+        headers: headers.map(toPlainText),
         rows: n.rows.map((row) => row.map(toPlainText)),
-        headersRich: n.headers,
+        headersRich: headers,
         rowsRich: n.rows,
-        headerRows: (n.headerRows ?? []).map((hr) => hr.map(toPlainText)),
-        headerRowsRich: n.headerRows ?? [],
+        headerRows: headerRows.map((hr) => hr.map(toPlainText)),
+        headerRowsRich: headerRows,
         confidence: n.confidence,
         source: 'llm' as const,
         warnings,

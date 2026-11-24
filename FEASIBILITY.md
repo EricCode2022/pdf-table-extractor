@@ -190,6 +190,22 @@ flowchart TD
 
 **结论**：LLM 兜底把真实文档提取从不可用（18.1%）提升到基本可用（79.9%），且成本极低。PRD 的 16/20 验收目标在 LLM 模式下具备达成条件。剩余 20% token 差距主要来自复杂合并单元格、数学公式和跨栏排版——这类场景需多模态图片输入或专用版面模型，属后续优化。
 
+### 4.6 多级表头校正与合并
+
+LLM 对多级表头的输出存在波动：003 样本中把 `Diversity` 错误覆盖 3 列并漏掉 `DPG` 分组，导致预览列头与原图不一致。修复分两层：
+
+- **坐标校正**（`lib/llm/fallback.ts` 的 `correctParentHeaderFromCoords`）：用 PDF 原始文字坐标重建父表头行。按数据行的 x 起点聚类确定列中心（合并同列的 `×`+`1.0000` 等碎片），再把每个父表头文字映射到其覆盖的列；只在能可靠定位数据行且分组数等于列数时启用，且只覆盖父表头能确定的列，保留 Method/Latency 等跨行标签。校正后追加警告 `Group headers corrected from PDF text coordinates`。
+- **预览与导出合并**（`components/extract/TableHeader.tsx`、`lib/export/excel.ts`）：同列相邻行文本相同则用 `rowSpan` 合并（Method/Latency），同行相邻列相同则用 `colSpan` 合并（Diversity）；两者要求 rowSpan 一致才水平合并，避免冲突。Excel 导出用相同算法输出 `mergeCells`。
+
+003 校正后表头：
+```
+父行: ["", "", "Diversity", "Diversity", "GenEval", "DPG"]
+子行: ["Method", "Latency", "LPIPS", "CLIP", "Overall", "Overall"]
+```
+预览合并为 `Method[跨2行] | Latency[跨2行] | Diversity[跨2列] | GenEval | DPG`，Excel 合并区域 `C1:D1, A1:A2, B1:B2`，与原图一致。
+
+全量真实样本回归 78.1%（较校正前 77.5% 略升，在 LLM 波动范围内），无退化。
+
 生产构建 `npx next build` 通过，12 个路由全部生成。
 
 ## 5. UI 说明
