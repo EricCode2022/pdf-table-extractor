@@ -125,11 +125,14 @@ function trimTrailingEmpty(arr: string[]): string[] {
   return copy;
 }
 
-function normalizeTable(t: z.infer<typeof LLM_TABLE>) {
-  let headers = t.headers.map(cleanCellText);
+function normalizeTable(t: z.infer<typeof LLM_TABLE>): {
+  table: z.infer<typeof LLM_TABLE>;
+  columnCount: number;
+  mergedColumns: number[];
+} {
+  let headers = t.headers.map(cleanCellText).map((h) => (/^column\s+\d+$/i.test(h.trim()) ? '' : h));
   let rows = t.rows.map((row) => row.map(cleanCellText));
 
-  // Drop trailing empty cells that LLMs often append (false columns).
   rows = rows.map(trimTrailingEmpty);
   headers = trimTrailingEmpty(headers);
 
@@ -144,7 +147,24 @@ function normalizeTable(t: z.infer<typeof LLM_TABLE>) {
     return r;
   });
 
-  return { ...t, headers: normalizedHeaders, rows: normalizedRows, columnCount: colCount };
+  // Detect vertically merged cells: first row has a value, all following rows empty in same column.
+  const mergedColumns: number[] = [];
+  if (normalizedRows.length >= 2 && colCount > 1) {
+    for (let c = 0; c < colCount; c++) {
+      const first = normalizedRows[0][c]?.trim() ?? '';
+      if (!first) continue;
+      const restEmpty = normalizedRows.slice(1).every((r) => !r[c]?.trim());
+      if (!restEmpty) continue;
+      mergedColumns.push(c);
+      for (let r = 1; r < normalizedRows.length; r++) normalizedRows[r][c] = first;
+    }
+  }
+
+  return {
+    table: { headers: normalizedHeaders, rows: normalizedRows, confidence: t.confidence },
+    columnCount: colCount,
+    mergedColumns,
+  };
 }
 
 export async function extractPageWithLlm(
@@ -170,17 +190,23 @@ export async function extractPageWithLlm(
       };
     }
     const pageTables: TableData[] = parsed.tables.map((t, i) => {
-      const n = normalizeTable(t);
+      const { table: n, columnCount, mergedColumns } = normalizeTable(t);
+      const warnings = ['AI assisted extraction; please review'];
+      if (mergedColumns.length) {
+        warnings.push(
+          `Merged cells filled down in column ${mergedColumns.map((c) => c + 1).join(', ')}; please verify`
+        );
+      }
       return {
         id: `table_llm_${page.pageNumber}_${i + 1}`,
         page: page.pageNumber,
         rowCount: n.rows.length,
-        columnCount: n.columnCount,
+        columnCount,
         headers: n.headers,
         rows: n.rows,
         confidence: n.confidence,
         source: 'llm' as const,
-        warnings: ['AI assisted extraction; please review'],
+        warnings,
       };
     });
     return { tables: pageTables, usage, latencyMs: Date.now() - started };
