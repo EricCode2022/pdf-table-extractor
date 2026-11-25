@@ -814,7 +814,12 @@ function rebuildRichDataRows(
     const hits = page.cells.filter((c) => c.text.trim() === text).sort((a, b) => b.y - a.y);
     const y = hits[0]?.y;
     if (y === undefined) { richRows.push([...row]); continue; }
-    const band = sorted.filter((c) => c.y >= y - 5 && c.y <= y + 4 && c.text.trim());
+    // Sort by x before grouping: subscripts sit a point or two lower in y, so
+    // a y-ordered band can place a subscript at the end and its negative x gap
+    // would wrongly append it to the last (rightmost) column group.
+    const band = sorted
+      .filter((c) => c.y >= y - 5 && c.y <= y + 4 && c.text.trim())
+      .sort((a, b) => a.x - b.x);
     const groups: (typeof page.cells)[] = [];
     for (const c of band) {
       const last = groups[groups.length - 1];
