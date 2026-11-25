@@ -150,10 +150,19 @@ function toSuperscript(s: string): string {
   return s;
 }
 
+// Symbol fonts often map math glyphs into the Private Use Area, which normal
+// fonts render as tofu boxes. Map the ones we have observed to Unicode math.
+const PUA_SYMBOL_MAP: Record<string, string> = {
+  '\uE23B': '𝒪', // mathematical script capital O (Big-O)
+};
+
 function normalizeMarkup(text: string): string {
   // Strip PDF control characters used by symbol fonts (e.g. \u0011 for an
   // overline/binom glyph) — they render as invisible/box glyphs in the UI.
   let out = text.replace(/[\u0000-\u001F\u007F]/g, '').trim();
+  for (const [pua, unicode] of Object.entries(PUA_SYMBOL_MAP)) {
+    out = out.split(pua).join(unicode);
+  }
   // Some PDFs use a dagger glyph for a superscript plus (e.g. "77.9^+").
   out = out.replace(/†/g, '+');
   // Fold chained superscripts repeatedly: ε^{−2}^{k/}^{(2σ}^{+k}^{)} ->
@@ -947,7 +956,11 @@ export async function extractPageWithLlm(
       }
 
       const richRows = (rebuildRichDataRows(page, rows, columnCount) ?? rows).map((r) =>
-        r.map((v) => v.replace(/†/g, '+'))
+        r.map((v) => {
+          let out = v.replace(/†/g, '+');
+          for (const [pua, unicode] of Object.entries(PUA_SYMBOL_MAP)) out = out.split(pua).join(unicode);
+          return out;
+        })
       );
       if (richRows !== rows) warnings.push('Sub/superscript formatting rebuilt from PDF coordinates');
 

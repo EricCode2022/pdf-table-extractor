@@ -251,6 +251,8 @@ colSpan 规则最终确定：**只有第一行（父分组行）做水平合并*
 - 误入数据的"文本标签 + 其余列全空"首行识别为跨行行标签，移到表头首列并删除伪数据行
 - 007 目标表最终：`ResNet-18[跨2行] | SLC=100(190MB)[跨2列] | SLC=50(95MB)[跨2列]` / `Soft-Only | Ours | Soft-Only | Ours`，数据从 `IPC=10` 开始，正文不再混入
 
+**私有区符号映射**（`PUA_SYMBOL_MAP`）：009 的 Big-O 符号在 PDF 中是 `U+E23B`（字体私有区），普通字体没有字形，浏览器显示成方块 █。映射到标准 Unicode `𝒪`（U+1D4AA, MATHEMATICAL SCRIPT CAPITAL O）。映射同时应用于纯文本（`normalizeMarkup`）和富文本（`rowsRich` 生成处），其余数学斜体字母（𝑛/𝐿/𝛽 等 U+1D400 区段）是标准 Unicode，无需处理。
+
 **数据行上下标重建**（`rebuildRichDataRows` + richtext 阈值）：LLM 输出纯文本会丢掉上下标（如 `A1`、`su2f4`），但 PDF text items 保留了小字号偏移的字形。放宽 `reconstructRichText` 的字号阈值 0.75→0.92（识别仅小 15% 的上下标），按 y 带+x 间隔把数据行 cells 分组后重建 `_{}`/`^{}` markup。007 结果：Algebra 表 `A_{1}`、`su_{2}⊕f_{4}⊕(7,26)`、`A^{enh}_{2}` 完整恢复；Pascal VOC 表 `77.9^{+}`、`48.2^{+}` 恢复（PDF 用 dagger 字形表示上标 +，已映射到 `+`）。
 
 **下划线限制**：原表中 `79.4`/`84.2` 等的下划线在 pdfjs 的 textContent 和 operatorList 中均无法提取（是字体渲染属性/复杂矢量 path，非独立文本或简单 stroke），当前技术栈无法可靠还原。花体字母（𝒜/𝔤）在 PDF text item 本身就是普通 `A`/`g`（字体渲染效果），同样无法从文本层还原——这两项需多模态图片识别或 OCR。
