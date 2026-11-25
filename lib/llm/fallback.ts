@@ -269,21 +269,26 @@ function fitTo(arr: string[], n: number): string[] {
  */
 function rebuildHeaderRowsFromCoords(
   page: PageData,
-  firstDataRow: string[],
+  dataRows: string[][],
   colCount: number
 ): string[][] | null {
   if (colCount < 2) return null;
 
-  // Locate the data row via the most distinctive cell: among the row's values,
-  // pick one whose text appears fewest times on the page, then take its
-  // topmost occurrence. Superscript labels are split into fragments in the
-  // PDF and won't match, but numeric values usually appear as single items.
-  const matches = firstDataRow
-    .map((v) => v.trim())
-    .filter(Boolean)
+  // Locate the first true data row via a distinctive cell from the early rows.
+  // Prefer numeric values: an LLM may put a row-spanning text label in the
+  // first row by mistake, which would anchor one line too high and pull prose
+  // from above the table into the header.
+  const isNumeric = (s: string) => /^[\d.,%+\-]+$/.test(s);
+  const candidates = dataRows.slice(0, 3).flat().map((v) => v.trim()).filter(Boolean);
+  const matches = candidates
     .map((text) => ({ text, cells: page.cells.filter((c) => c.text.trim() === text) }))
     .filter((m) => m.cells.length > 0)
-    .sort((a, b) => a.cells.length - b.cells.length);
+    // Prefer numeric values over text labels: an LLM may put a row-spanning
+    // text label (e.g. "ResNet-18") in the first data row by mistake, which
+    // would anchor the header detector one line too high and pull in prose.
+    .sort((a, b) =>
+      Number(isNumeric(b.text)) - Number(isNumeric(a.text)) || a.cells.length - b.cells.length
+    );
   if (!matches.length) return null;
   const anchor = matches[0].cells.reduce((a, b) => (a.y < b.y ? a : b));
   const dataY = anchor.y;
@@ -674,7 +679,7 @@ export async function extractPageWithLlm(
 
       let headerRows = n.headerRows ?? [];
       let headers = n.headers;
-      const rebuilt = rebuildHeaderRowsFromCoords(page, rows[0] ?? [], columnCount);
+      const rebuilt = rebuildHeaderRowsFromCoords(page, rows, columnCount);
       if (rebuilt && rebuilt.some((hr) => hr.some((v) => v.trim()))) {
         headerRows = rebuilt;
         headers = Array.from({ length: columnCount }, (_, c) => {
@@ -683,6 +688,23 @@ export async function extractPageWithLlm(
           return dedup.join('/');
         });
         warnings.push('Group headers rebuilt from PDF text coordinates; please verify');
+      }
+
+      // An LLM may misplace a row-spanning row-label (e.g. "ResNet-18") into
+      // the first data row with all other cells empty. It is really the header
+      // label for column 0 — move it there and drop the phantom data row.
+      if (
+        rows.length > 1 &&
+        rows[0][0]?.trim() &&
+        !/^[\d.,%+\-]+$/.test(rows[0][0].trim()) &&
+        rows[0].slice(1).every((v) => !v?.trim()) &&
+        headerRows.length > 0
+      ) {
+        const label = rows[0][0].trim();
+        for (const hr of headerRows) if (!hr[0]?.trim()) hr[0] = label;
+        if (headers[0] && !headers[0].includes(label)) headers[0] = label;
+        rows = rows.slice(1);
+        warnings.push('Row label moved from data to header; please verify');
       }
 
       return {
