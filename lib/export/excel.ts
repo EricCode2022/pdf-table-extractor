@@ -62,6 +62,11 @@ export async function buildExcel(tables: TableData[]): Promise<Buffer> {
     }
     const headerLineCount = headerRows?.length ?? (table.headers.some((h) => h.trim() !== '') ? 1 : 0);
     for (const row of table.rows) sheet.addRow(row);
+    sheet.eachRow((row) => {
+      row.eachCell({ includeEmpty: false }, (cell) => {
+        cell.alignment = { ...(cell.alignment ?? {}), horizontal: 'center', vertical: 'middle' };
+      });
+    });
     // Merge vertically repeated first-column text labels (multirow cells).
     if (table.rows.length > 1) {
       let start = 0;

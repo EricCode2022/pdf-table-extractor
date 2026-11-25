@@ -29,11 +29,11 @@ export function TableHeader({
     return (
       <tr className="bg-slate-50">
         {(draftHeaders ?? headers).map((h, c) => (
-          <th key={c} className="border-b border-line text-left px-3 py-2.5 font-normal whitespace-nowrap">
+          <th key={c} className="border-b border-line text-center px-3 py-2.5 font-normal whitespace-nowrap">
             <input
               value={h}
               onChange={(e) => onEdit?.(c, e.target.value)}
-              className="w-full border border-line rounded px-1 py-0.5 bg-white"
+              className="w-full border border-line rounded px-1 py-0.5 bg-white text-center"
             />
           </th>
         ))}
@@ -89,9 +89,9 @@ export function TableHeader({
               key={`${ri}-${c}`}
               colSpan={colSpan}
               rowSpan={rowSpan}
-              className={`border-b border-line px-3 py-2.5 font-normal whitespace-nowrap ${
-                colSpan > 1 || rowSpan > 1 ? 'text-center' : 'text-left'
-              } ${ri === lines.length - 1 ? 'bg-slate-50' : 'bg-white'}`}
+              className={`border-b border-line px-3 py-2.5 font-normal whitespace-nowrap text-center ${
+                ri === lines.length - 1 ? 'bg-slate-50' : 'bg-white'
+              }`}
             >
               {text ? <RichCell text={line.rich?.[c] ?? text} /> : ''}
             </th>

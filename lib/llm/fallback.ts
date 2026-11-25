@@ -67,6 +67,7 @@ function buildPagePrompt(page: PageData, ruleTables: TableData[]): string {
     .map((c) => ({ t: c.richText, x: Math.round(c.x), y: Math.round(c.y) }));
   return [
     'Extract ALL tables from this PDF page. Text items have (text, x, y); y increases downward, x increases rightward.',
+    'CRITICAL: Scan the ENTIRE page from TOP (small y) to BOTTOM (large y). Do NOT stop after finding a few tables — a dense page may contain 6 or more tables. Continue scanning to the very bottom and include EVERY table, including ones near the page bottom.',
     'Group items into tables by spatial proximity. Multiple tables may appear side by side or stacked.',
     'Return ONLY JSON: {"tables":[{"headers":["..."],"headerRows":[["..."],["..."]],"rows":[["..."]],"confidence":0.0}]}',
     'Rules: do not invent data; preserve numbers exactly; preserve words exactly including first letters (e.g. CLOAK, not LOAK); if a table has no header, return headers: [] and headerRows: []; include every table you can find.',
@@ -569,6 +570,47 @@ export async function extractPageWithLlm(
         latencyMs: Date.now() - started,
         error: `LLM output failed validation (${reason}); kept rule-based result. Raw: ${content.slice(0, 300)}`,
       };
+    }
+
+    // Dense pages can cause the LLM to drop tables near the bottom. For such
+    // pages, run two additional passes on the top and bottom halves and merge
+    // any tables not already found. This trades extra tokens for recall.
+    if (page.cells.length > 100) {
+      const ys = page.cells.map((c) => c.y).sort((a, b) => a - b);
+      const midY = ys[Math.floor(ys.length / 2)];
+      const halves: PageData[] = [
+        { ...page, cells: page.cells.filter((c) => c.y <= midY) },
+        { ...page, cells: page.cells.filter((c) => c.y > midY) },
+      ];
+      const cellSet = (t: z.infer<typeof LLM_TABLE>) =>
+        new Set(t.rows.flat().map((v) => v.trim()).filter(Boolean));
+      const kept: z.infer<typeof LLM_TABLE>[] = parsed.tables;
+      const isDuplicate = (candidate: z.infer<typeof LLM_TABLE>) => {
+        const cs = cellSet(candidate);
+        if (cs.size === 0) return true;
+        return kept.some((existing) => {
+          const es = cellSet(existing);
+          let overlap = 0;
+          for (const v of cs) if (es.has(v)) overlap++;
+          // Skip tiny/degenerate candidate tables.
+          return cs.size < 3 || overlap / Math.max(1, Math.min(cs.size, es.size)) >= 0.6;
+        });
+      };
+      for (const half of halves) {
+        if (half.cells.length < 5) continue;
+        try {
+          const sliced = await callLlm(buildPagePrompt(half, []), config);
+          const part = LLM_RESPONSE.parse(JSON.parse(sliced.content));
+          for (const t of part.tables) {
+            if (!isDuplicate(t)) kept.push(t);
+          }
+          if (sliced.usage && usage) {
+            usage.promptTokens += sliced.usage.promptTokens;
+            usage.completionTokens += sliced.usage.completionTokens;
+            usage.totalTokens += sliced.usage.totalTokens;
+          }
+        } catch { /* keep whole-page result on slice failure */ }
+      }
     }
     const pageTables: TableData[] = parsed.tables.filter((t) => !isLikelyProse(t)).map((t, i) => {
       const { table: n, columnCount, mergedColumns } = normalizeTable(t);

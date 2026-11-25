@@ -297,7 +297,7 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
                                   }
                                 }
                                 return (
-                                  <td key={c} className="px-3 py-2 whitespace-nowrap">
+                                  <td key={c} className="px-3 py-2 whitespace-nowrap text-center">
                                     {editing ? (
                                       <input
                                         value={cell}
