@@ -8,3 +8,5 @@ node_modules
 .DS_Store
 *.json.bak
 PDF表格提取工具可行性分析_*.json
+data/
+*.reviewed.json

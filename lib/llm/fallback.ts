@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { TableData } from '@/types/table';
 import type { PageData } from '@/lib/pdf/parser';
 import { reconstructRichText } from '@/lib/pdf/richtext';
+import { fewShotPromptBlock } from '@/lib/llm/fewshot';
 
 const LLM_TABLE = z.object({
   headers: z.array(z.string()),
@@ -112,7 +113,7 @@ function buildPagePrompt(page: PageData, ruleTables: TableData[]): string {
     'Example (7 columns, 2 header lines): parent "Diversity" covers columns 3-5, "GenEval" col 6, "DPG" col 7, child line "Method|Latency|LPIPS|CLIP|Overall|Overall|Overall". headerRows = [["","","Diversity","Diversity","Diversity","GenEval","DPG"],["Method","Latency","LPIPS","CLIP","Overall","Overall","Overall"]]. headers = ["Method","Latency","Diversity/LPIPS","Diversity/CLIP","Diversity/Overall","GenEval/Overall","DPG/Overall"].',
     'Preserve EVERY character in labels, including math/italic letters like 𝒟, 𝒟_{test}-VQA must keep the 𝒟. Do not drop leading letters or symbols from labels.',
     'Include footnote/statistics rows that sit directly below a table (e.g. "Pearson Correlation: r = 0.9587, p = 0.04129") as a final row of that table. Put the whole text in the first cell and leave other cells empty — never omit it.',
-    '',
+    fewShotPromptBlock(),
     `Page number: ${page.pageNumber}`,
     `Page size: ${Math.round(page.width)}x${Math.round(page.height)}`,
     `Rule-engine candidates (may be incomplete or wrong): ${JSON.stringify(ruleTables.map((t) => ({ headers: t.headers, rows: t.rows })))}`,

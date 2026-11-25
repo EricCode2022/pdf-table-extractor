@@ -58,6 +58,23 @@ col=76.5%  row(±1)=88.2%  cell strict=70.2%  cell bestShift=74.6%  spanF1=20.5%
 
 这样把有限的准确性转化为可控的人工成本，同时积累真实修正数据用于后续优化。
 
+### Few-shot 回灌
+
+把导出的 Review Set JSON 转成 prompt 示例：
+
+```bash
+node scripts/build-fewshot.mjs path/to/xxx-reviewed.json [more.json ...]
+# 生成 data/fewshot-examples.json（已 gitignore）
+
+# 运行时默认启用；禁用：FEWSHOT_ENABLED=0 npm run dev
+```
+
+- `lib/llm/fewshot.ts` 按 mtime 缓存示例，重新生成后下次提取自动生效
+- 只挑列数一致、有真实数据、多级表头/宽表的样本，最多 12 条，prompt 里最多注入 6 条
+- 示例用 `<FEWSHOT_BEGIN/END>` 包裹并明确标注"仅为格式示范、不要复制数据"，避免模型误当成待提取数据
+
+**注意**：验证 few-shot 效果需要 LLM API 可用。2026-11-25 验证时 API 返回 402（配额不足），无法测得可靠对比数据；代码在 `FEWSHOT_ENABLED=0` 时行为与之前完全一致。
+
 ## 文件
 
 - `latex-table-parser.mjs`：GT LaTeX → { cols, rows, spans }，处理 multicolumn/multirow/规则命令/上下标
