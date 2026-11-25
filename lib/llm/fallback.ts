@@ -636,7 +636,20 @@ function rebuildHeaderRowsFromCoords(
     }
   }
 
-  return rebuilt;
+  // Drop visual lines that produced no mapped cell. Coordinate clustering can
+  // emit empty lines from rule strokes or stray glyphs; keeping them shifts
+  // every data row down and breaks row alignment with the source table.
+  const cleaned: string[][] = [];
+  for (const line of rebuilt) {
+    if (!line.some((v) => v.trim())) continue;
+    // Drop a line identical to the previous one. Real multi-level headers
+    // differ somewhere (e.g. parent "Diversity" vs child "LPIPS"), so an
+    // exact duplicate is a coordinate-rebuild artefact, not a rowSpan hint.
+    const prev = cleaned[cleaned.length - 1];
+    if (prev && line.every((v, c) => v === prev[c])) continue;
+    cleaned.push(line);
+  }
+  return cleaned.length ? cleaned : rebuilt;
 }
 
 /**

@@ -169,6 +169,9 @@ async function main() {
       const r = compareTable(gtTables[g], predTables[p]);
       col += r.colOk ? 1 : 0; row += r.rowOk ? 1 : 0; cell += r.cellAcc; strict += r.strictCell; span += r.spanF1;
       if (r.shift === 0) shift0++;
+      if (process.env.EVAL_DETAIL && r.shift !== 0) {
+        console.log(`  ${name} gt${g}: shift=${r.shift} strict=${(r.strictCell*100).toFixed(0)}% best=${(r.cellAcc*100).toFixed(0)}% gtRows=${r.gRows} predRows=${r.pRows} predHeaderRows=${predTables[p].headerRows?.length ?? 0}`);
+      }
       const c = gtTables[g].complexity ?? 'unknown';
       const b = byComplexity[c] ?? (byComplexity[c] = { n: 0, col: 0, row: 0, cell: 0, strict: 0, span: 0 });
       b.n++; b.col += r.colOk ? 1 : 0; b.row += r.rowOk ? 1 : 0; b.cell += r.cellAcc; b.strict += r.strictCell; b.span += r.spanF1;
