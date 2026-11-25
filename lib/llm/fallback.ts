@@ -15,6 +15,40 @@ const LLM_RESPONSE = z.object({
   tables: z.array(LLM_TABLE),
 });
 
+/** Parse LLM JSON, salvaging complete table objects from a truncated reply. */
+function parseLlmJson(content: string): unknown {
+  try { return JSON.parse(content); } catch { /* try salvage */ }
+  const trimmed = content.trim();
+  // Find the "tables" array, then keep only complete top-level objects inside
+  // it. A truncated final object is dropped rather than failing the page.
+  const marker = trimmed.indexOf('"tables"');
+  const open = trimmed.indexOf('[', marker < 0 ? 0 : marker);
+  if (open < 0) return null;
+  const objects: string[] = [];
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let start = -1;
+  for (let i = open + 1; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '{') { if (depth === 0) start = i; depth++; }
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0 && start >= 0) { objects.push(trimmed.slice(start, i + 1)); start = -1; }
+      if (depth < 0) break;
+    }
+  }
+  if (!objects.length) return null;
+  return { tables: objects.map((o) => { try { return JSON.parse(o); } catch { return null; } }).filter(Boolean) };
+}
+
 export type LlmConfig = {
   apiKey: string;
   baseUrl: string;
@@ -129,12 +163,13 @@ function isProseCell(text: string): boolean {
 }
 
 function isLikelyProse(t: z.infer<typeof LLM_TABLE>): boolean {
-  const headerEmpty = t.headers.every((h) => !h.trim());
-  if (!headerEmpty) return false;
-  const cells = t.rows.flat();
+  const cells = t.rows.flat().map((v) => v?.trim() ?? '').filter(Boolean);
   if (cells.length === 0) return false;
+  // A real table's data rows contain numbers or short labels. A paragraph
+  // misread as a table has only multi-word sentences with no digits.
+  if (cells.some((v) => /\d/.test(v))) return false;
   const proseCount = cells.filter(isProseCell).length;
-  return proseCount / cells.length >= 0.5;
+  return proseCount / cells.length >= 0.6;
 }
 
 const SUPERSCRIPT_MAP: Record<string, string> = {
@@ -826,13 +861,15 @@ export async function extractPageWithLlm(
     const { content, usage } = await callLlm(buildPagePrompt(page, ruleTables), config);
     let parsed: z.infer<typeof LLM_RESPONSE>;
     try {
-      parsed = LLM_RESPONSE.parse(JSON.parse(content));
+      const raw = parseLlmJson(content);
+      parsed = LLM_RESPONSE.parse(raw);
     } catch (e) {
       // One malformed table must not discard the whole page: parse the JSON
       // loosely and keep every table that passes per-table validation.
       try {
-        const raw = JSON.parse(content);
-        const rawTables = Array.isArray(raw?.tables) ? raw.tables : [];
+        const raw = parseLlmJson(content);
+        const rawTables = Array.isArray((raw as { tables?: unknown[] })?.tables)
+          ? (raw as { tables: unknown[] }).tables : [];
         const valid = rawTables
           .map((t: unknown) => LLM_TABLE.safeParse(t))
           .filter((r: z.SafeParseReturnType<unknown, z.infer<typeof LLM_TABLE>>) => r.success)
@@ -1044,7 +1081,7 @@ export async function enhanceWithLlm(
     const { content } = await callLlm(prompt, config);
     let parsed: z.infer<typeof LLM_RESPONSE>;
     try {
-      parsed = LLM_RESPONSE.parse(JSON.parse(content));
+      parsed = LLM_RESPONSE.parse(parseLlmJson(content));
     } catch {
       return { ...table, warnings: [...table.warnings, 'AI correction failed validation; kept rule-based result'] };
     }
