@@ -522,6 +522,78 @@ function rebuildHeaderRowsFromCoords(
 }
 
 /**
+ * Split side-by-side tables that the LLM merged into one and headed with prose
+ * from above (e.g. two 3-column tables P1/P2/P3 and ≻a/≻b/≻c). Uses raw text
+ * items: a small x gap (<7pt) means glyph fragments of one column, a large gap
+ * (>30pt) means a different sub-table.
+ */
+function splitSideBySideTables(page: PageData, table: TableData): TableData[] | null {
+  const colCount = table.columnCount;
+  const rows = table.rows;
+  if (colCount < 4 || rows.length < 2) return null;
+  const firstHeader = table.headers[0]?.trim() ?? '';
+  // Prose header: long, multi-word, no digits and located far above the data.
+  if (firstHeader.length < 25 || !/\s/.test(firstHeader) || /\d/.test(firstHeader)) return null;
+  const prose = page.cells.find((c) => c.text.trim() === firstHeader);
+  if (!prose) return null;
+
+  // First data row y: use the last row's numeric text (least likely to be a header digit).
+  const numeric = [...rows[0]].reverse().find((v) => /\d/.test(v ?? ''))?.trim() ?? '';
+  const anchor = page.cells
+    .filter((c) => c.text.trim() === numeric && c.y > prose.y + 10)
+    .sort((a, b) => b.y - a.y)[0];
+  if (!anchor) return null;
+  const headerLine = page.cells
+    .filter((c) => c.text.trim() && c.y > prose.y + 3 && c.y < anchor.y - 8 && anchor.y - c.y < 55)
+    .sort((a, b) => a.y - b.y || a.x - b.x);
+  // Keep only one visual header line (closest to the data row).
+  const headerY = Math.min(...headerLine.map((c) => c.y));
+  const line = headerLine.filter((c) => Math.abs(c.y - headerY) <= 5).sort((a, b) => a.x - b.x);
+  if (line.length < 6) return null;
+
+  // Group glyphs into columns: consecutive items with x gap <=7 belong together.
+  const cols: (typeof page.cells)[] = [];
+  for (const c of line) {
+    const last = cols[cols.length - 1];
+    if (last && c.x - last[last.length - 1].x <= 7) last.push(c);
+    else cols.push([c]);
+  }
+  if (cols.length !== colCount) return null;
+  // Split columns into sub-tables where the x gap between adjacent columns >30.
+  const subTables: (typeof cols)[] = [[]];
+  for (let i = 0; i < cols.length; i++) {
+    if (i > 0 && cols[i][0].x - cols[i - 1][cols[i - 1].length - 1].x > 30) subTables.push([]);
+    subTables[subTables.length - 1].push(cols[i]);
+  }
+  if (subTables.length < 2) return null;
+  const sizes = subTables.map((s) => s.length);
+  if (!sizes.every((s) => s === sizes[0])) return null;
+
+  return subTables.map((sub, gi) => {
+    const headersRich = sub.map((glyphs) =>
+      glyphs
+        .sort((a, b) => a.x - b.x)
+        .map((c, i) => (i > 0 && c.height < glyphs[0].height * 0.9 ? `_{${c.text}}` : c.text))
+        .join('')
+    );
+    const subRows = rows.map((r) => r.slice(gi * sizes[0], (gi + 1) * sizes[0]));
+    return {
+      ...table,
+      id: `${table.id}_s${gi + 1}`,
+      columnCount: sizes[0],
+      headers: headersRich.map(toPlainText),
+      headersRich,
+      headerRows: [headersRich.map(toPlainText)],
+      headerRowsRich: [headersRich],
+      rows: subRows.map((r) => r.map(toPlainText)),
+      rowsRich: subRows,
+      rowCount: subRows.length,
+      warnings: [...table.warnings, 'Side-by-side table split from PDF coordinates'],
+    };
+  });
+}
+
+/**
  * Restore full-width group-title rows (e.g. "UMAP + XGBoost") that separate
  * blocks of data. LLMs often drop them or mislabel the first data column. Such
  * a title is a single centred text item on its own visual line between data
@@ -895,7 +967,8 @@ export async function extractPageWithLlm(
         warnings,
       };
     });
-    return { tables: pageTables, usage, latencyMs: Date.now() - started };
+    const finalTables = pageTables.flatMap((t) => splitSideBySideTables(page, t) ?? [t]);
+    return { tables: finalTables, usage, latencyMs: Date.now() - started };
   } catch (err) {
     return {
       tables: ruleTables,
