@@ -370,10 +370,18 @@ function rebuildHeaderRowsFromCoords(
       groups.push({ left: cell.x, right: cell.x + cell.width, lastX: cell.x });
     }
   }
+  // A restored leading multirow label column has no text in the first data
+  // row (the label is vertically centred lower), so the PDF row yields one
+  // fewer centre than the table's column count. Insert a virtual centre for
+  // that column to the left of the first real one.
+  if (groups.length === colCount - 1 && colCount >= 2) {
+    const first = (groups[0].left + groups[0].right) / 2;
+    const gap = groups.length > 1 ? first - (groups[1].left + groups[1].right) / 2 : 30;
+    groups.unshift({ left: first - gap, right: first - gap, lastX: first - gap });
+  }
   if (groups.length !== colCount) return null;
   const centers = groups.map((g) => (g.left + g.right) / 2);
 
-  // Header visual rows above the data row, using 8pt tolerance for sub/superscripts.
   const allHeaderRows = cluster(10).filter(
     (r) => r.every((c) => c.y < dataY - 4) && dataY - r[0].y < 60
   );
@@ -415,7 +423,7 @@ function rebuildHeaderRowsFromCoords(
       for (let c = 0; c < colCount; c++) {
         // Tight tolerance: a narrow label (e.g. "Other") must not spill into a
         // neighbouring column. Wide group labels still cover several centres.
-        if (centers[c] >= left - 2 && centers[c] <= right + 2) coveredCols.push(c);
+        if (centers[c] >= left && centers[c] <= right) coveredCols.push(c);
       }
       if (coveredCols.length > 1) {
         // Wide parent group label spanning several columns: repeat it.
@@ -520,16 +528,38 @@ function rebuildHeaderRowsFromCoords(
   // text width is smaller than the columns it spans, so the x-extent mapping
   // only anchors its first column.
   for (let ri = 0; ri < rebuilt.length - 1; ri++) {
+    // Only the top parent row can contain colSpan group labels. Lower rows may
+    // hold vertically-centred row-spanning labels (e.g. β) which must not be
+    // spread sideways into the child columns.
+    if (ri > 0) break;
     const cur = rebuilt[ri];
-    const child = rebuilt[ri + 1];
-    for (let c = 0; c < colCount - 1; c++) {
-      if (!cur[c] || cur[c + 1]) continue;
-      // Don't extend row-spanning labels (same text appears in child line).
-      if (child[c] === cur[c]) continue;
-      let to = c + 1;
-      while (to < colCount && !cur[to]) {
-        if (child[to] && child[to] !== cur[c]) { cur[to] = cur[c]; }
-        to++;
+    // Use the densest following line as the child reference: a middle visual
+    // row may be a sparse row-spanning label (β) rather than the child columns.
+    let child = rebuilt[ri + 1];
+    for (let r = ri + 2; r < rebuilt.length; r++) {
+      if (rebuilt[r].filter(Boolean).length > child.filter(Boolean).length) child = rebuilt[r];
+    }
+    // Find the anchor column of each distinct label.
+    const anchors: { c: number; text: string }[] = [];
+    for (let c = 0; c < colCount; c++) {
+      if (cur[c] && !anchors.some((a) => a.text === cur[c])) anchors.push({ c, text: cur[c] });
+    }
+    // Process right-to-left so a right group claims its left columns before
+    // the left group extends rightwards. A column filled on every lower line
+    // is a row-spanning label column (e.g. β) and is a hard boundary.
+    const rowSpanCols: number[] = [];
+    if (rebuilt.length - ri >= 3) {
+      for (let c = 0; c < colCount; c++) {
+        if (rebuilt.slice(ri + 1).every((line) => line[c])) rowSpanCols.push(c);
+      }
+    }
+    for (const a of [...anchors].reverse()) {
+      if (child[a.c] === a.text) continue;
+      for (const dir of [-1, 1]) {
+        for (let c = a.c + dir; c >= 0 && c < colCount; c += dir) {
+          if (cur[c] || !child[c] || rowSpanCols.includes(c)) break;
+          cur[c] = a.text;
+        }
       }
     }
   }
@@ -540,6 +570,15 @@ function rebuildHeaderRowsFromCoords(
   for (let ri = 0; ri < rebuilt.length - 1; ri++) {
     const cur = rebuilt[ri];
     const child = rebuilt[ri + 1];
+    // Don't fill a row-spanning label line (e.g. β between parent/child rows)
+    // with parent group labels; it represents one tall merged cell, not a
+    // separate header line with its own group labels.
+    const curCount = cur.filter(Boolean).length;
+    const childCount = child.filter(Boolean).length;
+    // A sparse line between two denser lines is a vertically-centred row-span
+    // label line (e.g. β), not a group row to copy down.
+    const isSpanLine = curCount > 0 && curCount < childCount / 2;
+    if (isSpanLine) continue;
     for (let c = 0; c < colCount; c++) {
       if (cur[c] && !child[c]) child[c] = cur[c];
     }
