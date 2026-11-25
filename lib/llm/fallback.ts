@@ -139,11 +139,12 @@ function isLikelyProse(t: z.infer<typeof LLM_TABLE>): boolean {
 const SUPERSCRIPT_MAP: Record<string, string> = {
   '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵',
   '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', '-': '⁻', '+': '⁺',
-  '∘': '°', 'o': '°',
+  '∘': '°', 'o': '°', '†': '⁺',
 };
 
 function toSuperscript(s: string): string {
   if (s === '∘' || s === 'o') return '°';
+  if (s === '†') return '⁺';
   if (/^[-+]?\d+$/.test(s)) return [...s].map((ch) => SUPERSCRIPT_MAP[ch] ?? ch).join('');
   return s;
 }
@@ -152,6 +153,8 @@ function normalizeMarkup(text: string): string {
   // Strip PDF control characters used by symbol fonts (e.g. \u0011 for an
   // overline/binom glyph) — they render as invisible/box glyphs in the UI.
   let out = text.replace(/[\u0000-\u001F\u007F]/g, '').trim();
+  // Some PDFs use a dagger glyph for a superscript plus (e.g. "77.9^+").
+  out = out.replace(/†/g, '+');
   // Fold chained superscripts repeatedly: ε^{−2}^{k/}^{(2σ}^{+k}^{)} ->
   // ε^{−2k/(2σ+k)}. PDF symbol fonts split one superscript into many runs.
   let prev: string;
@@ -518,6 +521,44 @@ function rebuildHeaderRowsFromCoords(
 }
 
 /**
+ * Rebuild rich (sub/superscript) markup for data rows from PDF coordinates.
+ * The LLM emits plain text and drops math formatting; the text items retain
+ * smaller-offset glyphs that reconstructRichText can turn into _{}/^{}.
+ */
+function rebuildRichDataRows(
+  page: PageData,
+  rows: string[][],
+  colCount: number
+): string[][] | null {
+  if (rows.length === 0 || colCount < 2) return null;
+  const sorted = [...page.cells].filter((c) => c.text.trim()).sort((a, b) => a.y - b.y);
+  const richRows: string[][] = [];
+  for (const row of rows) {
+    const text = row.find((v) => v?.trim())?.trim() ?? '';
+    // Locate this row's y via any matching page text (prefer longer values).
+    const hits = page.cells.filter((c) => c.text.trim() === text).sort((a, b) => b.y - a.y);
+    const y = hits[0]?.y;
+    if (y === undefined) { richRows.push([...row]); continue; }
+    const band = sorted.filter((c) => c.y >= y - 5 && c.y <= y + 4 && c.text.trim());
+    const groups: (typeof page.cells)[] = [];
+    for (const c of band) {
+      const last = groups[groups.length - 1];
+      if (last && c.x - last[last.length - 1].x <= 15) last.push(c);
+      else groups.push([c]);
+    }
+    if (groups.length !== colCount) { richRows.push([...row]); continue; }
+    const rich = groups.map((g) =>
+      reconstructRichText(g)
+        .map((c) => c.richText.replace(/†/g, '+').replace(/\^\{o\}/g, '^{∘}'))
+        .join('')
+    );
+    richRows.push(rich);
+  }
+  if (!richRows.some((r, i) => r.some((v, c) => v !== rows[i]?.[c]))) return null;
+  return richRows;
+}
+
+/**
  * Restore vertically-merged data cells (multirow). In PDFs the label of a
  * multirow cell is vertically centred, so the LLM leaves some column-0 cells
  * empty and puts the label on the group's middle row. We use the PDF text
@@ -707,6 +748,11 @@ export async function extractPageWithLlm(
         warnings.push('Row label moved from data to header; please verify');
       }
 
+      const richRows = (rebuildRichDataRows(page, rows, columnCount) ?? rows).map((r) =>
+        r.map((v) => v.replace(/†/g, '+'))
+      );
+      if (richRows !== rows) warnings.push('Sub/superscript formatting rebuilt from PDF coordinates');
+
       return {
         id: `table_llm_${page.pageNumber}_${i + 1}`,
         page: page.pageNumber,
@@ -715,7 +761,7 @@ export async function extractPageWithLlm(
         headers: headers.map(toPlainText),
         rows: rows.map((row) => row.map(toPlainText)),
         headersRich: headers,
-        rowsRich: rows,
+        rowsRich: richRows,
         headerRows: headerRows.map((hr) => hr.map(toPlainText)),
         headerRowsRich: headerRows,
         confidence: n.confidence,

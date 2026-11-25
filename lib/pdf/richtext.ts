@@ -2,7 +2,10 @@ import type { TextCell } from './parser';
 
 export type RichCell = TextCell & { richText: string };
 
-const SIZE_RATIO = 0.75;
+// Some PDFs render sub/superscripts only ~15% smaller than the base glyph
+// (e.g. 6.3pt vs 7.4pt). A strict 0.75 ratio misses those; 0.92 still keeps
+// normal same-size text from being mistaken for a script.
+const SIZE_RATIO = 0.92;
 const MAX_SUBSCRIPT_GAP = 5;
 
 function isSubscript(a: TextCell, b: TextCell): boolean {
