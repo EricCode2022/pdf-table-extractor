@@ -122,17 +122,20 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
     });
   }
 
-  function exportReviewSet() {
-    const reviewed = tables.filter((t) => reviewedIds.has(t.id));
-    if (!reviewed.length) return;
-    const payload = {
+  function buildReviewPayload() {
+    return {
       sourceFile: fileName,
       exportedAt: new Date().toISOString(),
-      tables: reviewed.map((t) => ({
+      tables: tables.filter((t) => reviewedIds.has(t.id)).map((t) => ({
         ...t,
         review: { ...assessTable(t), reviewedAt: new Date().toISOString() },
       })),
     };
+  }
+
+  function exportReviewSet() {
+    const payload = buildReviewPayload();
+    if (!payload.tables.length) return;
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -142,6 +145,25 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  }
+
+  async function submitReviewSet() {
+    const payload = buildReviewPayload();
+    if (!payload.tables.length) return;
+    setExporting('feedback');
+    setError('');
+    try {
+      const res = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceFile: payload.sourceFile, tables: payload.tables }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Failed to submit feedback');
+      setReviewedIds(new Set());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to submit feedback');
+    } finally { setExporting(''); }
   }
 
   async function exportFile(format: 'xlsx' | 'csv') {
@@ -456,6 +478,15 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
                         title="Export reviewed tables as JSON for few-shot / evaluation"
                       >
                         <Download size={14} /> Review Set {reviewedIds.size > 0 ? `(${reviewedIds.size})` : ''}
+                      </button>
+                      <button
+                        className="btn-primary"
+                        onClick={() => void submitReviewSet()}
+                        disabled={reviewedIds.size === 0 || !!exporting}
+                        title="Submit reviewed tables to the feedback inbox"
+                      >
+                        {exporting === 'feedback' ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
+                        Submit Feedback {reviewedIds.size > 0 ? `(${reviewedIds.size})` : ''}
                       </button>
                     </div>
                   </>
