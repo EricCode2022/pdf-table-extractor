@@ -318,7 +318,8 @@ function fitTo(arr: string[], n: number): string[] {
 function rebuildHeaderRowsFromCoords(
   page: PageData,
   dataRows: string[][],
-  colCount: number
+  colCount: number,
+  llmHeaderRows: string[][] = []
 ): string[][] | null {
   if (colCount < 2) return null;
 
@@ -412,7 +413,9 @@ function rebuildHeaderRowsFromCoords(
       // covered by it — repeat the text so colSpan can merge them later.
       const coveredCols: number[] = [];
       for (let c = 0; c < colCount; c++) {
-        if (centers[c] >= left - 12 && centers[c] <= right + 12) coveredCols.push(c);
+        // Tight tolerance: a narrow label (e.g. "Other") must not spill into a
+        // neighbouring column. Wide group labels still cover several centres.
+        if (centers[c] >= left - 2 && centers[c] <= right + 2) coveredCols.push(c);
       }
       if (coveredCols.length > 1) {
         // Wide parent group label spanning several columns: repeat it.
@@ -512,15 +515,31 @@ function rebuildHeaderRowsFromCoords(
     }
   }
 
-  // Copy parent labels down into empty child cells so rowSpan merges them
-  // (e.g. "2L(m)" spanning both header lines). Only for tables that have a
-  // repeated parent group (colSpan) — a plain 2-line header with no grouping
-  // should keep its distinct child labels.
+  // Extend an isolated parent label rightwards over empty parent cells that
+  // have child values (e.g. "Proof" over Lemma/Target). A centred group label's
+  // text width is smaller than the columns it spans, so the x-extent mapping
+  // only anchors its first column.
   for (let ri = 0; ri < rebuilt.length - 1; ri++) {
     const cur = rebuilt[ri];
     const child = rebuilt[ri + 1];
-    const hasGroup = cur.some((v) => v && cur.filter((x) => x === v).length > 1);
-    if (!hasGroup) continue;
+    for (let c = 0; c < colCount - 1; c++) {
+      if (!cur[c] || cur[c + 1]) continue;
+      // Don't extend row-spanning labels (same text appears in child line).
+      if (child[c] === cur[c]) continue;
+      let to = c + 1;
+      while (to < colCount && !cur[to]) {
+        if (child[to] && child[to] !== cur[c]) { cur[to] = cur[c]; }
+        to++;
+      }
+    }
+  }
+
+  // Copy parent labels down into empty child cells so rowSpan merges them
+  // (e.g. "#Tasks"/"2L(m)" spanning both header lines). The label was printed
+  // only once in the PDF, vertically centred across the header lines.
+  for (let ri = 0; ri < rebuilt.length - 1; ri++) {
+    const cur = rebuilt[ri];
+    const child = rebuilt[ri + 1];
     for (let c = 0; c < colCount; c++) {
       if (cur[c] && !child[c]) child[c] = cur[c];
     }
@@ -558,6 +577,22 @@ function rebuildHeaderRowsFromCoords(
         const joined = `${top[c]} ${bottom[c]}`;
         top[c] = joined;
         bottom[c] = joined; // repeat so rowSpan merges into one tall cell
+      }
+    }
+  }
+
+  // Restore row-spanning labels that appear in BOTH LLM header lines but only
+  // once in the PDF (e.g. "#Tasks"/"Spec"/"Other" printed once, spanning both
+  // lines). Without this, coordinate rebuilding puts them only in the parent
+  // line and the child line loses those columns.
+  if (llmHeaderRows.length >= 2) {
+    for (let c = 0; c < colCount; c++) {
+      const llmText = llmHeaderRows[0][c]?.trim() ?? '';
+      if (!llmText) continue;
+      const spansRows = llmHeaderRows.slice(1).some((hr) => (hr[c]?.trim() ?? '') === llmText);
+      if (!spansRows) continue;
+      for (let ri = 0; ri < rebuilt.length; ri++) {
+        if (!rebuilt[ri][c]) rebuilt[ri][c] = llmText;
       }
     }
   }
@@ -964,7 +999,7 @@ export async function extractPageWithLlm(
       }
 
       let headers = n.headers;
-      const rebuilt = rebuildHeaderRowsFromCoords(page, rows, columnCount);
+      const rebuilt = rebuildHeaderRowsFromCoords(page, rows, columnCount, n.headerRows ?? []);
       if (rebuilt && rebuilt.some((hr) => hr.some((v) => v.trim()))) {
         headerRows = rebuilt;
         headers = Array.from({ length: columnCount }, (_, c) => {
