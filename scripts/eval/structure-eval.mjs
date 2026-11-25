@@ -32,11 +32,11 @@ function adaptPrediction(t) {
   const grid = [...headerRows, ...dataRows];
   const headerCount = headerRows.length;
   const covered = grid.map(() => Array(cols).fill(false));
+  // Mirror the UI: rowSpan inference only applies to the first column.
   for (let r = 1; r < grid.length; r++) {
-    for (let c = 0; c < cols; c++) {
-      const cur = grid[r][c];
-      if (cur && cur === grid[r - 1][c]) covered[r][c] = true;
-    }
+    const c = 0;
+    const cur = grid[r][c];
+    if (cur && cur === grid[r - 1][c]) covered[r][c] = true;
   }
   const rowSpanAt = (r, c) => {
     let span = 1;
@@ -127,13 +127,15 @@ function compareTable(gt, pred) {
   const pSpans = new Set(p.spans.map(spanKey));
   let tp = 0;
   for (const k of pSpans) if (gSpans.has(k)) tp++;
+  const fp = [...pSpans].filter((k) => !gSpans.has(k));
+  const fn = [...gSpans].filter((k) => !pSpans.has(k));
   const spanP = pSpans.size ? tp / pSpans.size : 0;
   const spanR = gSpans.size ? tp / gSpans.size : 0;
   const spanF1 = spanP + spanR ? 2 * spanP * spanR / (spanP + spanR) : 0;
   return {
     colOk, rowOk, cellAcc: cellTotal ? cellHit / cellTotal : 0,
     strictCell: strictTotal ? strictHit / strictTotal : 0, shift: bestShift,
-    spanF1, gCols: g.cols, pCols: p.cols, gRows: g.rows.length, pRows: p.rows.length,
+    spanF1, fp, fn, gCols: g.cols, pCols: p.cols, gRows: g.rows.length, pRows: p.rows.length,
     gSpans: gSpans.size, pSpans: pSpans.size, tp,
   };
 }
@@ -171,6 +173,9 @@ async function main() {
       if (r.shift === 0) shift0++;
       if (process.env.EVAL_DETAIL && r.shift !== 0) {
         console.log(`  ${name} gt${g}: shift=${r.shift} strict=${(r.strictCell*100).toFixed(0)}% best=${(r.cellAcc*100).toFixed(0)}% gtRows=${r.gRows} predRows=${r.pRows} predHeaderRows=${predTables[p].headerRows?.length ?? 0}`);
+      }
+      if (process.env.EVAL_SPANS && (r.fp.length || r.fn.length)) {
+        console.log(`  ${name} gt${g}: F1=${(r.spanF1*100).toFixed(0)}% GTspans=${r.gSpans} pred=${r.pSpans} tp=${r.tp}  FN=${JSON.stringify(r.fn.slice(0,6))} FP=${JSON.stringify(r.fp.slice(0,6))}`);
       }
       const c = gtTables[g].complexity ?? 'unknown';
       const b = byComplexity[c] ?? (byComplexity[c] = { n: 0, col: 0, row: 0, cell: 0, strict: 0, span: 0 });
