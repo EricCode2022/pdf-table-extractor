@@ -271,7 +271,21 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
                           />
                         </thead>
                         <tbody>
-                          {(editing ? draft!.rows : active.rows).map((row, r) => (
+                          {(editing ? draft!.rows : active.rows).map((row, r) => {
+                            const isGroupTitle = !editing && row[0]?.trim() &&
+                              row.slice(1).every((v) => !v?.trim()) &&
+                              /[+()]|no |Reduction/i.test(row[0].trim()) &&
+                              /[A-Za-z]/.test(row[0].trim());
+                            if (isGroupTitle) {
+                              return (
+                                <tr key={r} className="border-b border-line">
+                                  <td colSpan={active.columnCount} className="px-3 py-2 text-center font-normal text-muted">
+                                    <RichCell text={active.rowsRich?.[r]?.[0] ?? row[0]} />
+                                  </td>
+                                </tr>
+                              );
+                            }
+                            return (
                             <tr key={r} className="border-b border-line last:border-0">
                               {row.map((cell, c) => {
                                 if (!editing && c === 0 && cell && !/^[\d.,%+\-]+$/.test(cell)) {
@@ -309,7 +323,8 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
                                 );
                               })}
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>

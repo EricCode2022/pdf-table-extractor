@@ -259,6 +259,10 @@ colSpan 规则最终确定：**只有第一行（父分组行）做水平合并*
 
 **LLM 校验容错**：008.pdf 曾报 `LLM output failed validation: confidence Required`——LLM 偶发漏掉 `confidence` 字段，Zod 整页校验失败导致回退到规则引擎（空白表）。修复：`confidence` 设为可选默认 0.8；主校验失败时尝试逐表 `safeParse`，保留合法表、丢弃畸形表，而不是整页作废。008 现提取 4 张表、无错误，目标 9 列表格正确。
 
+**分组标题行恢复**（`restoreGroupTitleRows`）：008 的 9 列表有 4 个跨列分组标题（UMAP + XGBoost / UMAP + Random Forest / XGBoost (no Dim. Reduction) / Random Forest (no Dim. Reduction)），LLM 只保留 1 个在表头、漏掉 3 个，且把 y=170（UMAP+XGBoost 组最后一行）的首列误标成 None。修复：从坐标识别"单行单 cell + 分组关键词"的视觉行，作为跨列行插入数据；用坐标首列文本修正数据行首列（row4 从 None 改回 UMAP）。预览层把分组标题行渲染为跨全列居中行，并作为 rowSpan 屏障，避免 UMAP/None 跨组合并。
+
+**并排表限制**：008 的两个 3列表（P1/P2/P3 与 ≻a/≻b/≻c）被 LLM 合并成一张 6列表且用正文当表头。尝试用坐标 x 间隙切分，但表头字形（P 与下标 1、≻ 与下标 a）的富文本合并不可靠，分组大小不一致，自动切分会误伤其他表——已回退该尝试，留待多模态/版面模型解决。
+
 注意：分块补提引入 LLM 调用随机性，全量召回在 68–80% 间波动（表格数 46–57，同代码连续两次跑 68.2%/75.3%），单次数字仅供参考。这是 DeepSeek 对分块 prompt 的输出不稳定，非代码回归。
 
 全量真实样本回归 79.7%（含分块补提），无退化。

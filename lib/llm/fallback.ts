@@ -522,6 +522,86 @@ function rebuildHeaderRowsFromCoords(
 }
 
 /**
+ * Restore full-width group-title rows (e.g. "UMAP + XGBoost") that separate
+ * blocks of data. LLMs often drop them or mislabel the first data column. Such
+ * a title is a single centred text item on its own visual line between data
+ * rows, which is unambiguous in the coordinates.
+ */
+function restoreGroupTitleRows(
+  page: PageData,
+  rows: string[][],
+  colCount: number
+): string[][] | null {
+  if (rows.length < 4 || colCount < 3) return null;
+  // Locate the first data row y via a numeric cell from early rows.
+  const numeric = rows.slice(0, 3).flat().map((v) => v?.trim() ?? '')
+    .find((v) => /^[\d.,%+\-–]+$/.test(v));
+  if (!numeric) return null;
+  const anchor = page.cells.find((c) => c.text.trim() === numeric);
+  if (!anchor) return null;
+
+  const sorted = [...page.cells].filter((c) => c.text.trim()).sort((a, b) => a.y - b.y);
+  const visualRows: (typeof page.cells)[] = [];
+  for (const c of sorted) {
+    const r = visualRows.find((row) => Math.abs(row[0].y - c.y) <= 4);
+    if (r) r.push(c); else visualRows.push([c]);
+  }
+  const firstDataIdx = visualRows.findIndex((r) => r.some((c) => c === anchor || Math.abs(c.y - anchor.y) <= 4));
+  if (firstDataIdx < 0) return null;
+
+  // Single-cell lines between data rows whose text does not appear as any
+  // data cell are group titles.
+  const allDataText = new Set(rows.flat().map((v) => v?.trim()).filter(Boolean));
+  const titles: { text: string; y: number }[] = [];
+  for (let i = firstDataIdx; i < visualRows.length; i++) {
+    const vr = visualRows[i];
+    if (vr.length !== 1) continue;
+    const text = vr[0].text.trim();
+    if (!text || allDataText.has(text)) continue;
+    if (!/[+()]|no |Reduction/i.test(text)) continue;
+    titles.push({ text, y: vr[0].y });
+  }
+  if (titles.length === 0) return null;
+
+  // Map each title to the data-row index it precedes, then insert it.
+  const dataYs: number[] = [];
+  for (let i = firstDataIdx; i < visualRows.length && dataYs.length < rows.length; i++) {
+    const y = visualRows[i][0].y;
+    if (visualRows[i].length < 3) continue; // skip title rows
+    if (!dataYs.some((d) => Math.abs(d - y) <= 4)) dataYs.push(y);
+  }
+  // First column label from the PDF (x closest to the leftmost data column).
+  const firstColX = page.cells
+    .filter((c) => rows.some((r) => r[0]?.trim() === c.text.trim()))
+    .map((c) => c.x);
+  const labelX = firstColX.length ? Math.min(...firstColX) : 0;
+  const fixFirstCol = (row: string[], y: number): string[] => {
+    const copy = [...row];
+    const hit = page.cells
+      .filter((c) => Math.abs(c.y - y) <= 4 && c.text.trim() && Math.abs(c.x - labelX) <= 30)
+      .sort((a, b) => a.x - b.x)[0];
+    if (hit && hit.text.trim() && hit.text.trim() !== copy[0]) copy[0] = hit.text.trim();
+    return copy;
+  };
+
+  const result: string[][] = [];
+  let di = 0;
+  for (const title of titles) {
+    while (di < rows.length && dataYs[di] !== undefined && dataYs[di] < title.y) {
+      result.push(fixFirstCol(rows[di++], dataYs[di]));
+    }
+    const line = Array.from({ length: colCount }, () => '');
+    line[0] = title.text;
+    result.push(line);
+  }
+  while (di < rows.length) {
+    result.push(fixFirstCol(rows[di], dataYs[di] ?? 0));
+    di++;
+  }
+  return result;
+}
+
+/**
  * Rebuild rich (sub/superscript) markup for data rows from PDF coordinates.
  * The LLM emits plain text and drops math formatting; the text items retain
  * smaller-offset glyphs that reconstructRichText can turn into _{}/^{}.
@@ -748,13 +828,23 @@ export async function extractPageWithLlm(
       }
 
       let rows = n.rows;
+      // Remove a group title that the LLM folded into the header line — it
+      // belongs with the data rows as a full-width separator.
+      let headerRows = n.headerRows ?? [];
+      headerRows = headerRows.map((hr) => hr.map((v) =>
+        /^(UMAP|XGBoost|Random Forest)\b.*(?:\+|no Dim)/i.test(v?.trim() ?? '') ? '' : v
+      ));
       const restoredRows = restoreMergedDataCells(page, rows, columnCount);
       if (restoredRows) {
         rows = restoredRows;
         warnings.push('Merged data cells restored from PDF text coordinates; please verify');
       }
+      const groupedRows = restoreGroupTitleRows(page, rows, columnCount);
+      if (groupedRows) {
+        rows = groupedRows;
+        warnings.push('Group title rows restored from PDF text coordinates; please verify');
+      }
 
-      let headerRows = n.headerRows ?? [];
       let headers = n.headers;
       const rebuilt = rebuildHeaderRowsFromCoords(page, rows, columnCount);
       if (rebuilt && rebuilt.some((hr) => hr.some((v) => v.trim()))) {
