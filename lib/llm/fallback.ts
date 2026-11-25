@@ -804,6 +804,135 @@ function rebuildRichDataRows(
 }
 
 /**
+ * Restore a leading data column that the LLM dropped entirely. Some PDFs have
+ * a leftmost multirow label column (e.g. H¹₀ / H²₀ spanning three rows each)
+ * whose text is vertically centred and split into super/subscript glyphs. The
+ * LLM often omits the whole column. Detect labels sitting to the LEFT of the
+ * LLM's first data column and insert them as a new column, repeating each label
+ * across its row group so the renderer's rowSpan merges it.
+ */
+function restoreMissingLeadingColumn(
+  page: PageData,
+  rows: string[][],
+  colCount: number
+): { rows: string[][]; columnCount: number } | null {
+  if (rows.length < 3 || colCount < 2) return null;
+
+  // Only apply when the LLM's first data column is numeric (e.g. β values
+  // 3/4/5) and a multirow label column (H¹₀/H²₀) is missing to its left. The
+  // numeric column may start a few rows down if the LLM folded header text
+  // into the first data rows, so scan the first three rows.
+  const isNumeric = (s: string) => /^[\d.,%+\-]+$/.test(s.trim());
+  const dataStart = rows.findIndex((r, i) => {
+    if (i >= 3 || r.slice(1).filter((v) => isNumeric(v ?? '')).length < 2) return false;
+    const first = r[0]?.trim() ?? '';
+    // Numeric sub-column (β values), or a repeated text label that the LLM
+    // collapsed from distinct multirow labels (e.g. "H0" for both H¹₀/H²₀).
+    return isNumeric(first) || (!!first && rows.filter((x) => x[0]?.trim() === first).length >= 2);
+  });
+  if (dataStart < 0) return null;
+  const llmText = new Set(rows.flat().map((v) => v?.trim() ?? '').filter(Boolean));
+
+  // Locate the first column via its numeric cell. Pick the value that appears
+  // fewest times on the page and take its topmost occurrence.
+  // Anchor on a numeric data cell and derive the first data column's x from
+  // the leftmost numeric value in the anchor row (β column), regardless of
+  // whether the LLM put a collapsed text label in front of it.
+  const distinctive = rows.slice(dataStart, dataStart + 2)
+    .flatMap((r) => r.map((v) => v?.trim() ?? ''))
+    .filter((v) => isNumeric(v))
+    .map((text) => ({ text, cells: page.cells.filter((c) => c.text.trim() === text) }))
+    .filter((m) => m.cells.length > 0)
+    .sort((a, b) => a.cells.length - b.cells.length);
+  if (!distinctive.length) return null;
+  const anchor = distinctive[0].cells.reduce((a, b) => (a.y < b.y ? a : b));
+  const dataY = anchor.y;
+  const anchorRow = rows[dataStart];
+  const numericCells = anchorRow
+    .map((v, ci) => ({ ci, text: v?.trim() ?? '' }))
+    .filter((x) => isNumeric(x.text))
+    .map((x) => ({ ...x, cell: page.cells.find((c) => c.text.trim() === x.text) }))
+    .filter((x): x is typeof x & { cell: (typeof page.cells)[number] } => !!x.cell);
+  if (!numericCells.length) return null;
+  const firstColX = Math.min(...numericCells.map((x) => x.cell.x));
+
+  // Candidate label glyphs: non-numeric text strictly left of the first column,
+  // within a tight vertical band around the table's data rows.
+  const sorted = [...page.cells].filter((c) => c.text.trim()).sort((a, b) => a.y - b.y || a.x - b.x);
+  const leftGlyphs = sorted.filter(
+    (c) => c.x + c.width < firstColX - 10 && c.y >= dataY - 8 && c.y <= dataY + rows.length * 22
+  );
+  if (leftGlyphs.length < 2 || leftGlyphs.length > 20) return null;
+
+  // Group glyphs into visual rows first (a multirow label's H, super- and
+  // subscript sit at slightly different y), then merge each row's fragments.
+  const groups: (typeof leftGlyphs)[] = [];
+  for (const c of [...leftGlyphs].sort((a, b) => a.y - b.y || a.x - b.x)) {
+    const g = groups.find((row) => Math.abs(row[0].y - c.y) <= 10);
+    if (g) g.push(c); else groups.push([c]);
+  }
+  const richRaw = groups.flatMap((g) => reconstructRichText(g)).filter((c) => c.richText.trim());
+  // reconstructRichText can leave a subscript digit separate after a superscript
+  // was absorbed (its width check then rejects the digit). Fuse such an orphan
+  // digit back into the preceding label, e.g. "H^{1}" + "0" -> "H^{1}_{0}".
+  const rich: typeof richRaw = [];
+  for (const cell of richRaw) {
+    const prev = rich[rich.length - 1];
+    if (prev && /\^\{\d+\}$/.test(prev.richText) && /^\d$/.test(cell.richText) && Math.abs(cell.y - prev.y) < 10) {
+      prev.richText += `_{${cell.richText}}`;
+    } else {
+      rich.push({ ...cell });
+    }
+  }
+  const labels = rich.filter((c) => {
+    const t = normalizeMarkup(c.richText.trim());
+    return t && !isNumeric(t) && !llmText.has(t);
+  });
+  if (labels.length < 2 || labels.length > 6) return null;
+
+  // Determine data row y positions: consecutive visual rows starting at dataY.
+  const dataRowYs: number[] = [];
+  for (const c of sorted) {
+    if (c.y < dataY - 4 || c.y > dataY + rows.length * 30) continue;
+    if (c.x < firstColX - 12) continue; // ignore the label column itself
+    if (dataRowYs.length === 0 || c.y - dataRowYs[dataRowYs.length - 1] > 8) dataRowYs.push(c.y);
+  }
+  if (dataRowYs.length < rows.length - 1) return null;
+
+  // Snap each label to its nearest data row (its y is the group's centre).
+  const marks = labels.map((c) => {
+    const cy = c.y + c.height / 2;
+    let idx = 0, best = Infinity;
+    for (let i = 0; i < Math.min(dataRowYs.length, rows.length); i++) {
+      const d = Math.abs(dataRowYs[i] - cy);
+      if (d < best) { best = d; idx = i; }
+    }
+    return { text: normalizeMarkup(c.richText.trim()), idx };
+  }).sort((a, b) => a.idx - b.idx);
+  if (marks.length < 2 || marks[0].idx === marks[marks.length - 1].idx) return null;
+
+  // Assign each data row to the nearest label group (split at midpoints).
+  const boundaries = marks.slice(1).map((m, i) => (marks[i].idx + m.idx) / 2);
+  // If the LLM already has a (collapsed) label column, replace its values;
+  // otherwise insert a brand-new leading column.
+  const replaces = !isNumeric(rows[dataStart][0] ?? '');
+  const finalRows = rows.map((row, ri) => {
+    let label = '';
+    if (ri >= dataStart) {
+      const dr = ri - dataStart;
+      let gi = 0;
+      while (gi < boundaries.length && dr >= boundaries[gi]) gi++;
+      label = marks[gi].text;
+    } else if (row.some((v) => isNumeric(v ?? ''))) {
+      // Header text folded into an early data row: it belongs to group 0.
+      label = marks[0].text;
+    }
+    return replaces ? [label, ...row.slice(1)] : [label, ...row];
+  });
+  return { rows: finalRows, columnCount: replaces ? colCount : colCount + 1 };
+}
+
+/**
  * Restore vertically-merged data cells (multirow). In PDFs the label of a
  * multirow cell is vertically centred, so the LLM leaves some column-0 cells
  * empty and puts the label on the group's middle row. We use the PDF text
@@ -972,7 +1101,8 @@ export async function extractPageWithLlm(
       }
     }
     const pageTables: TableData[] = parsed.tables.filter((t) => !isLikelyProse(t)).map((t, i) => {
-      const { table: n, columnCount, mergedColumns } = normalizeTable(t);
+      const { table: n, columnCount: normalizedColCount, mergedColumns } = normalizeTable(t);
+      let columnCount = normalizedColCount;
       const warnings = ['AI assisted extraction; please review'];
       if (mergedColumns.length) {
         warnings.push(
@@ -987,6 +1117,12 @@ export async function extractPageWithLlm(
       headerRows = headerRows.map((hr) => hr.map((v) =>
         /^(UMAP|XGBoost|Random Forest)\b.*(?:\+|no Dim)/i.test(v?.trim() ?? '') ? '' : v
       ));
+      const leading = restoreMissingLeadingColumn(page, rows, columnCount);
+      if (leading) {
+        rows = leading.rows;
+        columnCount = leading.columnCount;
+        warnings.push('Leading multirow label column restored from PDF text coordinates; please verify');
+      }
       const restoredRows = restoreMergedDataCells(page, rows, columnCount);
       if (restoredRows) {
         rows = restoredRows;
