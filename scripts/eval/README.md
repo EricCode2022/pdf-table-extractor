@@ -61,7 +61,8 @@ col=76.5%  row(±1)=88.2%  cell strict=70.2%  cell bestShift=74.6%  spanF1=20.5%
 ### 反馈收集与管理端
 
 - 前端「Submit Feedback」按钮：把已复核的表 POST 到 `/api/feedback`（替代手动下载 JSON）
-- 存储：`.tmp/feedback/*.json`，一条提交一个文件（gitignore 排除；Vercel 环境需换 Blob/DB）
+- 存储双模式：本地 `.tmp/feedback/*.json`；检测到 `VERCEL` 或 `BLOB_READ_WRITE_TOKEN` 时自动切到 Vercel Blob（`feedback/` 前缀，private 访问，重启不丢）
+- 管理页密码保护：设置 `ADMIN_PASSWORD` 后，`/api/feedback` 的 GET 需要 `x-admin-password` header，管理页会显示密码输入框；不设置则不校验（仅适合本地开发）
 - 管理页：`/admin/feedback`，列出所有提交，点击展开看每张表的修正后数据 + review 信息
 - API：`GET/POST /api/feedback`、`GET /api/feedback/[id]`
 - 提交后前端清空 reviewed 状态，可开始下一轮

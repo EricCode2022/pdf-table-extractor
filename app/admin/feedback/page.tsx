@@ -10,21 +10,30 @@ export default function FeedbackAdminPage() {
   const [selected, setSelected] = useState<FeedbackEntry | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [password, setPassword] = useState('');
+  const [unlocked, setUnlocked] = useState(false);
+
+  function authHeaders(): HeadersInit {
+    return password ? { 'x-admin-password': password } : {};
+  }
 
   async function load() {
     setLoading(true);
     try {
-      const res = await fetch('/api/feedback');
+      const res = await fetch('/api/feedback', { headers: authHeaders() });
+      if (res.status === 401) { setUnlocked(false); setError('Password required'); return; }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Failed to load');
       setEntries(data.entries ?? []);
+      setUnlocked(true);
+      setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load');
     } finally { setLoading(false); }
   }
 
   async function open(id: string) {
-    const res = await fetch(`/api/feedback/${encodeURIComponent(id)}`);
+    const res = await fetch(`/api/feedback/${encodeURIComponent(id)}`, { headers: authHeaders() });
     const data = await res.json();
     if (res.ok) setSelected(data as FeedbackEntry);
   }
@@ -45,7 +54,23 @@ export default function FeedbackAdminPage() {
 
         {error && <div className="text-[12px] text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{error}</div>}
 
-        <div className="border border-line rounded-lg overflow-hidden">
+        {!unlocked && (
+          <div className="border border-line rounded-lg p-5 max-w-sm space-y-3">
+            <h2 className="text-[13px] font-medium">Admin access</h2>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') void load(); }}
+              placeholder="Admin password"
+              className="w-full border border-line rounded px-3 py-2 text-[13px]"
+            />
+            <button className="btn-primary" onClick={() => void load()}>Unlock</button>
+            <p className="text-[11px] text-muted">Set ADMIN_PASSWORD on the server to protect this page.</p>
+          </div>
+        )}
+
+        {unlocked && <div className="border border-line rounded-lg overflow-hidden">
           <table className="w-full text-[12px]">
             <thead className="bg-slate-50 text-muted">
               <tr>
@@ -70,9 +95,9 @@ export default function FeedbackAdminPage() {
               )}
             </tbody>
           </table>
-        </div>
+        </div>}
 
-        {selected && (
+        {unlocked && selected && (
           <div className="border border-line rounded-lg p-4 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-[14px] font-semibold">{selected.sourceFile} — {selected.tableCount} tables</h2>

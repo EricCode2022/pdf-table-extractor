@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { saveFeedback, listFeedback } from '@/lib/feedback/store';
+import { requireAdmin } from '@/lib/feedback/auth';
 
 export const runtime = 'nodejs';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const denied = requireAdmin(req);
+  if (denied) return denied;
   return NextResponse.json({ entries: await listFeedback() });
 }
 
