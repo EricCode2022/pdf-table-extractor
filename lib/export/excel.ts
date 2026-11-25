@@ -46,9 +46,9 @@ export async function buildExcel(tables: TableData[]): Promise<Buffer> {
             textAt(ri, c + colSpan) === text &&
             rowSpanAt(ri, c + colSpan) === rowSpan &&
             text !== '' &&
-            // Child cells merge only when their parents match; two "Overall"
-            // under different parent groups must remain separate.
-            (ri === 0 || (textAt(ri - 1, c) !== '' && textAt(ri - 1, c) === textAt(ri - 1, c + colSpan)))
+            // Only the first header line uses colSpan for group labels; child
+            // columns stay separate even with identical labels (e.g. 4 "Eq.").
+            ri === 0
           ) colSpan++;
           if (rowSpan > 1 || colSpan > 1) {
             sheet.mergeCells(ri + 1, c + 1, ri + rowSpan, c + colSpan);
