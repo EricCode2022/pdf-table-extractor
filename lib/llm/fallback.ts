@@ -429,6 +429,50 @@ function rebuildHeaderRowsFromCoords(
     rebuilt[ri] = fresh;
   }
 
+  // A repeated parent group (e.g. "T(Eq.)" over 4 Eq. columns) may not cover
+  // every child column the LLM happened to leave blank in the parent line.
+  // Extend each repeated group label across the contiguous child-filled span
+  // that contains its existing columns.
+  for (let ri = 0; ri < rebuilt.length - 1; ri++) {
+    const cur = rebuilt[ri];
+    const child = rebuilt[ri + 1];
+    const counts = new Map<string, number>();
+    for (const v of cur) if (v) counts.set(v, (counts.get(v) ?? 0) + 1);
+    for (const [groupText, count] of counts) {
+      if (count < 2) continue;
+      const cols = cur.map((v, c) => (v === groupText ? c : -1)).filter((c) => c >= 0);
+      const anchorCol = Math.min(...cols);
+      // Find the run of identical child labels containing the anchor column.
+      const childText = child[anchorCol];
+      if (!childText) continue;
+      let from = anchorCol;
+      while (from > 0 && child[from - 1] === childText) from--;
+      let to = anchorCol;
+      while (to + 1 < colCount && child[to + 1] === childText) to++;
+      // Only a run of 3+ identical child labels is a colSpan group; require at
+      // least half of its parent cells to already carry the repeated label.
+      const runLen = to - from + 1;
+      if (runLen < 3) continue;
+      const inRun = cols.filter((c) => c >= from && c <= to).length;
+      if (inRun / runLen < 0.5) continue;
+      for (let c = from; c <= to; c++) cur[c] = groupText;
+    }
+  }
+
+  // Copy parent labels down into empty child cells so rowSpan merges them
+  // (e.g. "2L(m)" spanning both header lines). Only for tables that have a
+  // repeated parent group (colSpan) — a plain 2-line header with no grouping
+  // should keep its distinct child labels.
+  for (let ri = 0; ri < rebuilt.length - 1; ri++) {
+    const cur = rebuilt[ri];
+    const child = rebuilt[ri + 1];
+    const hasGroup = cur.some((v) => v && cur.filter((x) => x === v).length > 1);
+    if (!hasGroup) continue;
+    for (let c = 0; c < colCount; c++) {
+      if (cur[c] && !child[c]) child[c] = cur[c];
+    }
+  }
+
   // A label appearing alone on a single visual row (e.g. Method/Latency) is a
   // vertically-centred row-spanning label: copy it into adjacent header lines
   // so rowSpan detection merges it. Detect rows whose mapped cells are a strict
