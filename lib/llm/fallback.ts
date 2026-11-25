@@ -817,9 +817,19 @@ function rebuildRichDataRows(
     // Sort by x before grouping: subscripts sit a point or two lower in y, so
     // a y-ordered band can place a subscript at the end and its negative x gap
     // would wrongly append it to the last (rightmost) column group.
-    const band = sorted
+    let band = sorted
       .filter((c) => c.y >= y - 5 && c.y <= y + 4 && c.text.trim())
       .sort((a, b) => a.x - b.x);
+    // A prose line from a neighbouring column can share the same y band and
+    // add a spurious leftmost group, making groups.length != colCount. Keep
+    // only cells near the x-span of the texts the LLM actually extracted.
+    const rowTexts = row.map((v) => v?.trim() ?? '').filter(Boolean);
+    const anchorXs = band.filter((c) => rowTexts.includes(c.text.trim())).map((c) => c.x);
+    if (anchorXs.length) {
+      const minX = Math.min(...anchorXs) - 120;
+      const maxX = Math.max(...anchorXs) + 120;
+      band = band.filter((c) => c.x >= minX && c.x <= maxX);
+    }
     const groups: (typeof page.cells)[] = [];
     for (const c of band) {
       const last = groups[groups.length - 1];
@@ -903,10 +913,28 @@ function restoreMissingLeadingColumn(
   // Candidate label glyphs: non-numeric text strictly left of the first column,
   // within a tight vertical band around the table's data rows.
   const sorted = [...page.cells].filter((c) => c.text.trim()).sort((a, b) => a.y - b.y || a.x - b.x);
-  const leftGlyphs = sorted.filter(
+  const candidates = sorted.filter(
     (c) => c.x + c.width < firstColX - 10 && c.y >= dataY - 8 && c.y <= dataY + rows.length * 22
   );
-  if (leftGlyphs.length < 2 || leftGlyphs.length > 20) return null;
+  if (candidates.length < 2) return null;
+  // Several text columns may sit left of the numeric data (e.g. a method-name
+  // column plus a missing ILP/IM/HM group column). Cluster by x and pick the
+  // rightmost cluster whose labels are mostly absent from the LLM output —
+  // that is the dropped column, while the method names are already present.
+  const xClusters: (typeof candidates)[] = [];
+  for (const c of [...candidates].sort((a, b) => a.x - b.x)) {
+    const cl = xClusters[xClusters.length - 1];
+    if (cl && c.x - cl[cl.length - 1].x <= 15) cl.push(c);
+    else xClusters.push([c]);
+  }
+  const usable = [...xClusters].reverse().find((cl) =>
+    cl.filter((c) => {
+      const t = c.text.trim();
+      return t && t.length <= 20 && !isNumeric(t) && !llmText.has(t);
+    }).length >= 1
+  );
+  if (!usable || usable.length > 20) return null;
+  const leftGlyphs = usable;
 
   // Group glyphs into visual rows first (a multirow label's H, super- and
   // subscript sit at slightly different y), then merge each row's fragments.
@@ -928,11 +956,18 @@ function restoreMissingLeadingColumn(
       rich.push({ ...cell });
     }
   }
+  // The chosen x-cluster is already the leftmost label column; keep all its
+  // short non-numeric labels even if the LLM echoed some of them (e.g. IM) in
+  // misplaced data rows.
   const labels = rich.filter((c) => {
     const t = normalizeMarkup(c.richText.trim());
-    return t && !isNumeric(t) && !llmText.has(t);
+    return t && t.length <= 20 && !isNumeric(t);
   });
-  if (labels.length < 2 || labels.length > 6) return null;
+  // A nearby table lower on the page can fall inside the y band; keep only
+  // the labels belonging to this table (the topmost contiguous group).
+  labels.sort((a, b) => a.y - b.y);
+  if (labels.length > 6) labels.length = 6;
+  if (labels.length < 2) return null;
 
   // Determine data row y positions: consecutive visual rows starting at dataY.
   const dataRowYs: number[] = [];
@@ -957,9 +992,14 @@ function restoreMissingLeadingColumn(
 
   // Assign each data row to the nearest label group (split at midpoints).
   const boundaries = marks.slice(1).map((m, i) => (marks[i].idx + m.idx) / 2);
-  // If the LLM already has a (collapsed) label column, replace its values;
-  // otherwise insert a brand-new leading column.
-  const replaces = !isNumeric(rows[dataStart][0] ?? '');
+  // Replace only when the LLM's first column is physically aligned with the
+  // dropped label column (e.g. collapsed "H0" at the H¹₀ x position). If its
+  // text sits in a different column (method names shifted left), insert a new
+  // leading column instead so no existing data is lost.
+  const labelX = usable.reduce((sum, c) => sum + c.x, 0) / usable.length;
+  const firstCell = page.cells.find((c) => c.text.trim() === (rows[dataStart][0] ?? '').trim());
+  const replaces = !isNumeric(rows[dataStart][0] ?? '') &&
+    (!firstCell || Math.abs(firstCell.x - labelX) <= 15);
   const finalRows = rows.map((row, ri) => {
     let label = '';
     if (ri >= dataStart) {
