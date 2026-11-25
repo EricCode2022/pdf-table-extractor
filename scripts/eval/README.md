@@ -47,6 +47,17 @@ col=76.5%  row(±1)=88.2%  cell strict=70.2%  cell bestShift=74.6%  spanF1=20.5%
 - 5 张表仍行错位，且 best 也低（15-60%），属于内容识别问题
 - col 准确率 76.5%
 
+## 产品化闭环（商业化路径）
+
+既然结构准确率有上限，商业版本用「低置信度标记 + 人工复核」兜底（`d46eb83`）：
+
+- `lib/review/confidence.ts`：基于结构信号（结构修复 warning 数、空表头比例、行列数不匹配、正文表头）算 review priority，不用 LLM 自报的 confidence（默认 0.8 不可靠）
+- 结果页表列表按优先级排序，低置信度表红色标记 "Needs review"，中等 "Check"
+- 预览区显示复核原因；「Mark Reviewed」按钮或编辑保存后标记已复核
+- 「Review Set」按钮导出所有已复核表的 JSON（含修正后的表 + 复核元数据），可作为 few-shot 样本或新增评测样本回灌
+
+这样把有限的准确性转化为可控的人工成本，同时积累真实修正数据用于后续优化。
+
 ## 文件
 
 - `latex-table-parser.mjs`：GT LaTeX → { cols, rows, spans }，处理 multicolumn/multirow/规则命令/上下标
