@@ -7,7 +7,8 @@ const LLM_TABLE = z.object({
   headers: z.array(z.string()),
   headerRows: z.array(z.array(z.string())).optional(),
   rows: z.array(z.array(z.string())),
-  confidence: z.number().min(0).max(1),
+  // Models sometimes omit this field; it must never invalidate a whole page.
+  confidence: z.number().min(0).max(1).default(0.8),
 });
 
 const LLM_RESPONSE = z.object({
@@ -666,13 +667,35 @@ export async function extractPageWithLlm(
     try {
       parsed = LLM_RESPONSE.parse(JSON.parse(content));
     } catch (e) {
-      const reason = e instanceof Error ? e.message.slice(0, 200) : 'unknown';
-      return {
-        tables: ruleTables,
-        usage,
-        latencyMs: Date.now() - started,
-        error: `LLM output failed validation (${reason}); kept rule-based result. Raw: ${content.slice(0, 300)}`,
-      };
+      // One malformed table must not discard the whole page: parse the JSON
+      // loosely and keep every table that passes per-table validation.
+      try {
+        const raw = JSON.parse(content);
+        const rawTables = Array.isArray(raw?.tables) ? raw.tables : [];
+        const valid = rawTables
+          .map((t: unknown) => LLM_TABLE.safeParse(t))
+          .filter((r: z.SafeParseReturnType<unknown, z.infer<typeof LLM_TABLE>>) => r.success)
+          .map((r: z.SafeParseSuccess<z.infer<typeof LLM_TABLE>>) => r.data);
+        if (valid.length > 0) {
+          parsed = { tables: valid };
+        } else {
+          const reason = e instanceof Error ? e.message.slice(0, 200) : 'unknown';
+          return {
+            tables: ruleTables,
+            usage,
+            latencyMs: Date.now() - started,
+            error: `LLM output failed validation (${reason}); kept rule-based result. Raw: ${content.slice(0, 300)}`,
+          };
+        }
+      } catch {
+        const reason = e instanceof Error ? e.message.slice(0, 200) : 'unknown';
+        return {
+          tables: ruleTables,
+          usage,
+          latencyMs: Date.now() - started,
+          error: `LLM output failed validation (${reason}); kept rule-based result. Raw: ${content.slice(0, 300)}`,
+        };
+      }
     }
 
     // Dense pages can cause the LLM to drop tables near the bottom. For such
