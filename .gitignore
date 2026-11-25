@@ -6,3 +6,5 @@ node_modules
 *.log
 *.tsbuildinfo
 .DS_Store
+*.json.bak
+PDF表格提取工具可行性分析_*.json
