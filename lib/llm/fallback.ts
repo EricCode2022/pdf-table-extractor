@@ -533,9 +533,13 @@ function rebuildRichDataRows(
   if (rows.length === 0 || colCount < 2) return null;
   const sorted = [...page.cells].filter((c) => c.text.trim()).sort((a, b) => a.y - b.y);
   const richRows: string[][] = [];
+  const isNumeric = (s: string) => /[\d]/.test(s);
   for (const row of rows) {
-    const text = row.find((v) => v?.trim())?.trim() ?? '';
-    // Locate this row's y via any matching page text (prefer longer values).
+    // Locate y via a numeric-looking cell, not the first text: a vertically
+    // merged label (e.g. "Swin-S") sits at the group's centre, not this row's
+    // y, and would pull fragments from neighbouring rows into the band.
+    const text = [...row].sort((a, b) => Number(isNumeric(b ?? '')) - Number(isNumeric(a ?? '')))
+      .find((v) => v?.trim())?.trim() ?? '';
     const hits = page.cells.filter((c) => c.text.trim() === text).sort((a, b) => b.y - a.y);
     const y = hits[0]?.y;
     if (y === undefined) { richRows.push([...row]); continue; }
@@ -552,7 +556,16 @@ function rebuildRichDataRows(
         .map((c) => c.richText.replace(/†/g, '+').replace(/\^\{o\}/g, '^{∘}'))
         .join('')
     );
-    richRows.push(rich);
+    // Guard: if the rebuilt text diverges too much from the LLM's plain text
+    // (e.g. fragments from an adjacent row), keep the original instead.
+    const plain = (s: string) => s.replace(/[_{}^\\]/g, '').replace(/†/g, '+').trim();
+    const compatible = rich.every((v, c) => {
+      const a = plain(v);
+      const b = plain(row[c] ?? '');
+      if (!a || !b) return true;
+      return a === b || a.includes(b) || b.includes(a);
+    });
+    richRows.push(compatible ? rich : [...row]);
   }
   if (!richRows.some((r, i) => r.some((v, c) => v !== rows[i]?.[c]))) return null;
   return richRows;
