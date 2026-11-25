@@ -415,6 +415,11 @@ function rebuildHeaderRowsFromCoords(
     for (const cell of rich) {
       const text = normalizeMarkup(cell.richText);
       if (!text) continue;
+      // Prose paragraphs sitting just above a table can share the header y
+      // band. They are sentences (long, many words, sentence punctuation),
+      // never table headers. Skip them so they don't become phantom rows.
+      const words = text.split(/\s+/).filter(Boolean);
+      if (text.length > 40 && words.length >= 6 && /[.!?]$/.test(text)) continue;
       const left = cell.x;
       const right = cell.x + cell.width;
       // Columns whose centre falls inside the label's horizontal extent are
