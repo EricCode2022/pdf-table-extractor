@@ -9,6 +9,7 @@ import {
   Download, ChevronDown, ShieldCheck, AlertTriangle, Sparkles, Loader2, ArrowRight,
 } from 'lucide-react';
 import type { ExtractResult, TableData } from '@/types/table';
+import { assessTable } from '@/lib/review/confidence';
 
 type Props = { fileKey: string; fileUrl?: string; fileName: string; totalPages: number };
 
@@ -31,6 +32,11 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
   const [draft, setDraft] = useState<TableData | null>(null);
   const [enableLlm, setEnableLlm] = useState(true);
   const [exporting, setExporting] = useState('');
+  const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set());
+
+  function markReviewed(id: string) {
+    setReviewedIds((prev) => new Set(prev).add(id));
+  }
 
   async function runExtract(useLlm: boolean) {
     setLoading(true);
@@ -46,6 +52,7 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
       if (!res.ok) throw new Error(data.error ?? 'Extraction failed');
       const result = data as ExtractResult;
       setTables(result.tables);
+      setReviewedIds(new Set());
       setSelectedId(result.tables[0]?.id ?? '');
       setLlmErrors(result.llmErrors ?? []);
       if (result.totalPages > 0) setPageCount(result.totalPages);
@@ -59,6 +66,13 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
 
   useEffect(() => { void runExtract(true); }, []);
 
+  // Review queue: tables most likely to be wrong first, reviewed ones last.
+  const sortedTables = [...tables].sort((a, b) => {
+    const ar = reviewedIds.has(a.id) ? 1 : 0;
+    const br = reviewedIds.has(b.id) ? 1 : 0;
+    if (ar !== br) return ar - br;
+    return assessTable(a).score - assessTable(b).score;
+  });
   const selected = tables.find((t) => t.id === selectedId) ?? null;
   const active = editing && draft ? draft : selected;
 
@@ -71,6 +85,7 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
   function saveEdit() {
     if (!draft) return;
     setTables((prev) => prev.map((t) => (t.id === draft.id ? draft : t)));
+    markReviewed(draft.id);
     setEditing(false);
     setDraft(null);
   }
@@ -105,6 +120,28 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
         rows: prev.rows.map((row) => row.filter((_, c) => keep[c])),
       };
     });
+  }
+
+  function exportReviewSet() {
+    const reviewed = tables.filter((t) => reviewedIds.has(t.id));
+    if (!reviewed.length) return;
+    const payload = {
+      sourceFile: fileName,
+      exportedAt: new Date().toISOString(),
+      tables: reviewed.map((t) => ({
+        ...t,
+        review: { ...assessTable(t), reviewedAt: new Date().toISOString() },
+      })),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${fileName.replace(/\.pdf$/i, '')}-reviewed.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   async function exportFile(format: 'xlsx' | 'csv') {
@@ -210,31 +247,47 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
                     <span className="text-[11px] text-muted">{tables.length} tables found</span>
                   </div>
                   <div className="space-y-2">
-                    {tables.map((table) => (
+                    {sortedTables.map((table) => {
+                      const review = assessTable(table);
+                      const isReviewed = reviewedIds.has(table.id);
+                      return (
                       <button
                         key={table.id}
                         onClick={() => { setSelectedId(table.id); setEditing(false); setDraft(null); }}
                         className={`w-full text-left border rounded-lg p-3 flex items-start gap-2.5 transition-colors ${
                           table.id === selectedId ? 'border-primary bg-blue-50' : 'border-line hover:border-slate-300'
-                        }`}
+                        } ${review.level === 'low' && !isReviewed ? 'border-l-2 border-l-rose-400' : ''}`}
                       >
                         <span className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center ${
-                          table.id === selectedId ? 'bg-primary border-primary text-white' : 'border-slate-300'
+                          isReviewed ? 'bg-emerald-500 border-emerald-500 text-white'
+                          : table.id === selectedId ? 'bg-primary border-primary text-white' : 'border-slate-300'
                         }`}>
-                          {table.id === selectedId && <CheckCircle2 size={12} />}
+                          {(isReviewed || table.id === selectedId) && <CheckCircle2 size={12} />}
                         </span>
                         <Table2 size={16} className="mt-0.5 text-primary" />
-                        <span>
+                        <span className="min-w-0 flex-1">
                           <span className="block text-[13px]">{table.id.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase())}</span>
                           <span className="block text-[11px] text-muted">Page {table.page} · {table.rowCount} rows · {table.columnCount} columns</span>
-                          {table.source !== 'rules' && (
-                            <span className="inline-flex items-center gap-1 mt-1 text-[10px] text-violet-600">
-                              <Sparkles size={10} /> AI assisted
-                            </span>
-                          )}
+                          <span className="flex flex-wrap items-center gap-1 mt-1">
+                            {review.level === 'low' && !isReviewed && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-50 text-rose-700">Needs review</span>
+                            )}
+                            {review.level === 'medium' && !isReviewed && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">Check</span>
+                            )}
+                            {isReviewed && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">Reviewed</span>
+                            )}
+                            {table.source !== 'rules' && (
+                              <span className="inline-flex items-center gap-1 text-[10px] text-violet-600">
+                                <Sparkles size={10} /> AI assisted
+                              </span>
+                            )}
+                          </span>
                         </span>
                       </button>
-                    ))}
+                      );
+                    })}
                     {!tables.length && !loading && (
                       <div className="text-[12px] text-muted space-y-2">
                         <p>No tables detected.</p>
@@ -332,6 +385,22 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
                     <div className="border border-line rounded-lg h-40 flex items-center justify-center text-[12px] text-muted">Select a table to preview</div>
                   )}
 
+                  {active && (() => {
+                    const rv = assessTable(active);
+                    if (rv.level === 'high' || reviewedIds.has(active.id)) return null;
+                    return (
+                      <div className={`mt-3 flex items-start gap-2 text-[12px] rounded-lg px-3 py-2 border ${
+                        rv.level === 'low' ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-amber-50 border-amber-200 text-amber-700'
+                      }`}>
+                        <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                        <span>
+                          <strong>{rv.level === 'low' ? 'Review priority: high' : 'Review priority: medium'}</strong>
+                          {rv.reasons.length > 0 && ` — ${rv.reasons.join('; ')}`}
+                        </span>
+                      </div>
+                    );
+                  })()}
+
                   {active?.warnings.length ? (
                     <div className="mt-3 space-y-1.5">
                       {active.warnings.map((w, i) => (
@@ -359,6 +428,13 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
                 ) : (
                   <>
                     <button className="btn-outline" onClick={startEdit} disabled={!selected}><Pencil size={14} /> Edit Table</button>
+                    <button
+                      className="btn-outline"
+                      onClick={() => { if (selected) markReviewed(selected.id); }}
+                      disabled={!selected || (selected ? reviewedIds.has(selected.id) : false)}
+                    >
+                      <CheckCircle2 size={14} /> Mark Reviewed
+                    </button>
                     <button className="btn-outline" onClick={() => void runExtract(enableLlm)}>
                       <RefreshCw size={14} /> Re-extract
                     </button>
@@ -372,6 +448,14 @@ export function ExtractWorkspace({ fileKey, fileUrl, fileName, totalPages }: Pro
                       </button>
                       <button className="btn-outline" onClick={() => void exportFile('csv')} disabled={!!exporting}>
                         {exporting === 'csv' ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} Export CSV
+                      </button>
+                      <button
+                        className="btn-outline"
+                        onClick={exportReviewSet}
+                        disabled={reviewedIds.size === 0}
+                        title="Export reviewed tables as JSON for few-shot / evaluation"
+                      >
+                        <Download size={14} /> Review Set {reviewedIds.size > 0 ? `(${reviewedIds.size})` : ''}
                       </button>
                     </div>
                   </>
