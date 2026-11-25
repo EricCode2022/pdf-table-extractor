@@ -73,7 +73,15 @@ node scripts/build-fewshot.mjs path/to/xxx-reviewed.json [more.json ...]
 - 只挑列数一致、有真实数据、多级表头/宽表的样本，最多 12 条，prompt 里最多注入 6 条
 - 示例用 `<FEWSHOT_BEGIN/END>` 包裹并明确标注"仅为格式示范、不要复制数据"，避免模型误当成待提取数据
 
-**注意**：验证 few-shot 效果需要 LLM API 可用。2026-11-25 验证时 API 返回 402（配额不足），无法测得可靠对比数据；代码在 `FEWSHOT_ENABLED=0` 时行为与之前完全一致。
+**效果验证（2026-11-25，API 恢复后）**：
+
+| 指标 | 无 few-shot | 带 few-shot（12 条合成示例） |
+|---|---|---|
+| cell strict | 71.4% | 73.3% |
+| 行完全对齐 | 47/51 | 48/51 |
+| spanF1 | 20.5% | 21.9% |
+
+小幅正向（cell +1.9、span +1.4），无破坏行为。测试示例是从 GT 解析的合成样本；真实人工复核样本质量更高，预期效果更好。若 few-shot 导致退化，`FEWSHOT_ENABLED=0` 一键关闭。
 
 ## 文件
 
